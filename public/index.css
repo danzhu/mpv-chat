@@ -1,0 +1,63 @@
+body {
+    color: #cccccc;
+    background: #222222;
+    font-family: sans-serif;
+}
+
+.chat {
+    padding: 0;
+    list-style: none;
+}
+
+.comment {
+    display: flex;
+    padding: .2em 0;
+}
+
+.emote {
+    height: 2em;
+    vertical-align: top;
+}
+
+.icon {
+    flex-shrink: 0;
+    margin: .5em 0;
+    width: 1em;
+    border-radius: .2em;
+    background-color: #a970ff;
+}
+
+.detailed .details {
+    display: none;
+    position: absolute;
+    margin-left: 1em;
+    padding: .5em 1em;
+    max-width: 20em;
+    border-radius: .2em;
+    background-color: #333333;
+    word-wrap: break-word;
+}
+
+.detailed:hover > .details {
+    display: block;
+}
+
+.shortlist {
+    padding-left: 2ch;
+}
+
+.message {
+    margin: 0 .5em;
+    line-height: 2;
+    overflow: auto;
+    word-wrap: break-word;
+}
+
+.mention {
+    color: #a970ff;
+}
+
+.ref {
+    color: unset;
+    text-decoration: unset;
+}

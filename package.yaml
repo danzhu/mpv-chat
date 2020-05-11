@@ -1,0 +1,50 @@
+name: mpv-chat
+
+ghc-options: -Wall
+
+dependencies:
+# - directory
+# - extra
+# - mtl
+# - process
+# - resourcet
+# - wai-app-static
+# - wai-conduit
+# - wai-extra
+- aeson
+- async
+- base
+- blaze-html
+- bytestring
+- conduit
+- conduit-extra
+- containers
+- exceptions
+- filepath
+- http-conduit
+- http-types
+- microlens
+- microlens-th
+- mime-types
+- network
+- scientific
+- stm
+- text
+- transformers
+- unordered-containers
+- wai
+- warp
+
+library:
+  source-dirs: src
+
+executables:
+  mpv-chat:
+    main: Main.hs
+    source-dirs: app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - mpv-chat
