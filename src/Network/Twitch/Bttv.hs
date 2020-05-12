@@ -1,6 +1,3 @@
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE OverloadedStrings #-}
-
 module Network.Twitch.Bttv
   ( Bttv(..)
   , Emote(..)

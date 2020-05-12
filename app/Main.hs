@@ -1,7 +1,5 @@
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Main
@@ -55,6 +53,9 @@ import           Data.Conduit                   ( runConduit
                                                 , yield
                                                 )
 import qualified Data.Conduit.Combinators      as C
+import           Data.Default                   ( Default
+                                                , def
+                                                )
 import           Data.Foldable                  ( traverse_
                                                 , fold
                                                 )
@@ -105,15 +106,15 @@ ffz d = HM.fromList $ map emote . Fz.emoticons =<< HM.elems (Fz.sets d) where
   emote e = (Fz.name e, ("ffz channel", Fz.urls e HM.! 2))
 
 loadEmotes :: T.Text -> IO Emotes
-loadEmotes chan = do
-  let get url = do
-        req <- parseRequestThrow $ T.unpack url
-        getResponseBody <$> httpJSON req
-  fold <$> mapConcurrently id
-    [ bttv "global" <$> get Bt.globalUrl
-    , bttv "channel" <$> get (Bt.channelUrl chan)
-    , ffz <$> get (Fz.channelUrl chan)
-    ]
+loadEmotes chan = fold <$> mapConcurrently id
+  [ bttv "global" <$> get Bt.globalUrl
+  , bttv "channel" <$> get (Bt.channelUrl chan)
+  , ffz <$> get (Fz.channelUrl chan)
+  ]
+  where
+    get url = do
+      req <- parseRequestThrow $ T.unpack url
+      getResponseBody <$> httpJSON req
 
 format :: Emotes -> Tv.Comment -> H.Markup
 format emotes = comment where
@@ -155,6 +156,16 @@ newtype State = State
 makeLenses ''Play
 makeLenses ''State
 
+instance Default Play where
+  def = Play
+    { _comments = []
+    , _done = False
+    , _time = 0
+    }
+
+instance Default State where
+  def = State { _play = Nothing }
+
 render :: State -> H.Markup
 render state = case state ^. play of
   Nothing -> H.pre "idle"
@@ -179,9 +190,7 @@ main = do
   ipcPath <- getEnv "IPC_PATH"
   port <- maybe 8192 read <$> lookupEnv "PORT"
   let auth = Tv.Auth { Tv.clientId = clientId }
-  state <- newTVarIO State
-    { _play = Nothing
-    }
+  state <- newTVarIO def
   active <- newTVarIO False
   seek <- newTVarIO False
   redraw <- newBroadcastTChanIO
@@ -221,11 +230,7 @@ main = do
     let forceSync = writeTVar seek True
         load vid = do
           atomically $ do
-            update $ play ?~ Play
-              { _comments = []
-              , _done = False
-              , _time = 0
-              }
+            update $ play ?~ def
             forceSync
           video <- Tv.getVideo auth vid
           let chan = Tv.name (Tv.channel video :: Tv.Channel)

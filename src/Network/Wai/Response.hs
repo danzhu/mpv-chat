@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Network.Wai.Response
   ( responseEvents
   , responseStatus
