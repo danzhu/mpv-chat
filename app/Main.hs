@@ -47,7 +47,7 @@ import           Control.Monad.STM              ( atomically )
 import           Control.Monad.Trans.Cont       ( runContT
                                                 , ContT(ContT)
                                                 )
-import qualified Data.ByteString.Char8         as BC
+import           Control.Applicative            ( (<**>) )
 import           Data.Conduit                   ( runConduit
                                                 , (.|)
                                                 , yield
@@ -78,23 +78,67 @@ import           Network.HTTP.Simple            ( getResponseBody
                                                 , parseRequestThrow
                                                 )
 import           Network.Wai                    ( pathInfo )
-import           Network.Wai.Handler.Warp       ( defaultSettings
+import           Network.Wai.Handler.Warp       ( Port
+                                                , defaultSettings
                                                 , runSettings
                                                 , setBeforeMainLoop
                                                 , setHost
                                                 , setPort
                                                 )
-import           System.Environment             ( getEnv
-                                                , lookupEnv
-                                                )
 import           Text.Blaze.Html.Renderer.Utf8  ( renderHtml )
 import           Text.Blaze.Html5               ( (!) )
 import qualified Text.Blaze.Html5              as H
 import qualified Text.Blaze.Html5.Attributes   as A
+import           Options.Applicative            ( Parser
+                                                , auto
+                                                , execParser
+                                                , fullDesc
+                                                , help
+                                                , helper
+                                                , info
+                                                , long
+                                                , metavar
+                                                , option
+                                                , progDesc
+                                                , short
+                                                , showDefault
+                                                , str
+                                                , value
+                                                )
 
 type Scope = T.Text
 type Emote = (Scope, T.Text)
 type Emotes = HM.HashMap T.Text Emote
+
+data Play = Play
+  { _comments :: [(Scientific, H.Html)]
+  , _done :: Bool
+  , _time :: Scientific
+  }
+
+newtype State = State
+  { _play :: Maybe Play
+  }
+
+data Config = Config
+  { _ipcPath :: FilePath
+  , _auth :: Tv.Auth
+  , _port :: Port
+  } deriving (Show)
+
+makeLenses ''Play
+makeLenses ''State
+makeLenses ''Config
+
+instance Default Play where
+  def = Play
+    { _comments = []
+    , _done = False
+    , _time = 0
+    }
+
+instance Default State where
+  def = State { _play = Nothing }
 
 bttv :: Scope -> Bt.Bttv -> Emotes
 bttv s d = HM.fromList $ map emote $ Bt.emotes d where
@@ -143,29 +187,6 @@ format emotes = comment where
     ! A.src (H.toValue $ "https:" <> url)
     ! A.title (H.toValue $ txt <> " [" <> ori <> "]")
 
-data Play = Play
-  { _comments :: [(Scientific, H.Html)]
-  , _done :: Bool
-  , _time :: Scientific
-  }
-
-newtype State = State
-  { _play :: Maybe Play
-  }
-
-makeLenses ''Play
-makeLenses ''State
-
-instance Default Play where
-  def = Play
-    { _comments = []
-    , _done = False
-    , _time = 0
-    }
-
-instance Default State where
-  def = State { _play = Nothing }
-
 render :: State -> H.Markup
 render state = case state ^. play of
   Nothing -> H.pre "idle"
@@ -184,17 +205,38 @@ render state = case state ^. play of
         H.ul ! A.class_ "chat" $
           foldMap snd $ take 100 $ dropWhile later $ pla ^. comments
 
+parseAuth :: Parser Tv.Auth
+parseAuth = Tv.Auth <$> cid where
+  cid = option str $
+    long "client-id" <>
+    metavar "ID" <>
+    help "twitch client id"
+
+parseConfig :: Parser Config
+parseConfig = Config <$> ipc <*> parseAuth <*> por where
+  ipc = option str $
+    long "ipc-path" <>
+    metavar "PATH" <>
+    help "mpv ipc path"
+  por = option auto $
+    short 'p' <>
+    long "port" <>
+    metavar "PORT" <>
+    value 8192 <>
+    help "server port" <>
+    showDefault
+
 main :: IO ()
 main = do
-  clientId <- BC.pack <$> getEnv "CLIENT_ID"
-  ipcPath <- getEnv "IPC_PATH"
-  port <- maybe 8192 read <$> lookupEnv "PORT"
-  let auth = Tv.Auth { Tv.clientId = clientId }
+  let inf = info (parseConfig <**> helper) $
+        fullDesc <>
+        progDesc "mpv chat"
+  conf <- execParser inf
   state <- newTVarIO def
   active <- newTVarIO False
   seek <- newTVarIO False
   redraw <- newBroadcastTChanIO
-  let entry = putStrLn $ "server started on port " <> show port
+  let entry = putStrLn $ "server started on port " <> show (conf ^. port)
       update f = do
         modifyTVar' state f
         writeTChan redraw ()
@@ -206,13 +248,13 @@ main = do
           liftIO $ atomically $ readTChan red
       settings = defaultSettings
         & setHost "*6"
-        & setPort port
+        & setPort (conf ^. port)
         & setBeforeMainLoop entry
       app req res = case pathInfo req of
         ["events"] -> res $ responseEvents events
         _ -> appStatic req res
   flip runContT pure $ do
-    mpv <- ContT $ withMpv ipcPath
+    mpv <- ContT $ withMpv $ conf ^. ipcPath
     taskLoad <- ContT withTask
     asyncSync <- ContT $ withAsync $ forever $ do
       timeout <- registerDelay 1_000_000
@@ -232,14 +274,14 @@ main = do
           atomically $ do
             update $ play ?~ def
             forceSync
-          video <- Tv.getVideo auth vid
+          video <- Tv.getVideo (conf ^. auth) vid
           let chan = Tv.name (Tv.channel video :: Tv.Channel)
           emotes <- loadEmotes chan
           let fmt = Tv.content_offset_seconds &&& format emotes
               cat cs = do
                 let cs' = reverse $ map fmt cs
                 atomically $ update $ play . each . comments %~ (cs' <>)
-          runConduit $ Tv.sourceComments auth vid .| C.mapM_ cat
+          runConduit $ Tv.sourceComments (conf ^. auth) vid .| C.mapM_ cat
           atomically $ update $ play . each . done .~ True
     liftIO $ do
       link asyncSync

@@ -16,7 +16,7 @@ empty :: Int -> IdMap a
 empty i = IdMap i IM.empty
 
 insert :: a -> IdMap a -> (Int, IdMap a)
-insert a (IdMap i m) = (i, IdMap (i + 1) $ IM.insert i a m)
+insert a (IdMap i m) = (i, IdMap (succ i) $ IM.insert i a m)
 
 lookup :: Int -> IdMap a -> Maybe a
 lookup i (IdMap _ m) = IM.lookup i m

@@ -45,6 +45,7 @@ dependencies:
 - microlens-th
 - mime-types
 - network
+- optparse-applicative
 - scientific
 - stm
 - text
