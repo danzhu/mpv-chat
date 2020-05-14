@@ -72,10 +72,6 @@ import           Lens.Micro                     ( each
                                                 , (^.)
                                                 )
 import           Lens.Micro.TH                  ( makeLenses )
-import           Network.HTTP.Simple            ( getResponseBody
-                                                , httpJSON
-                                                , parseRequestThrow
-                                                )
 import           Network.Wai                    ( pathInfo )
 import           Network.Wai.Handler.Warp       ( Port
                                                 , defaultSettings
@@ -157,14 +153,10 @@ ffz d = HM.fromList $ map emote . Fz.emoticons =<< HM.elems (Fz.sets d) where
 
 loadEmotes :: Tv.Channel -> IO Emotes
 loadEmotes chan = fold <$> mapConcurrently id
-  [ bttvGlobal <$> get Bt.globalUrl
-  , bttvChannel <$> get (Bt.channelUrl chan)
-  , ffz <$> get (Fz.channelUrl chan)
+  [ bttvGlobal <$> Bt.getGlobal
+  , bttvChannel <$> Bt.getChannel chan
+  , ffz <$> Fz.getChannel chan
   ]
-  where
-    get url = do
-      req <- parseRequestThrow $ T.unpack url
-      getResponseBody <$> httpJSON req
 
 format :: Emotes -> Tv.Comment -> H.Markup
 format emotes = comment where

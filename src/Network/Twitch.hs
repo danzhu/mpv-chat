@@ -1,17 +1,20 @@
 module Network.Twitch
   ( Auth(..)
   , Channel(..)
-  , Video(..)
+  , Comment(..)
+  , Commenter(..)
+  , Comments(..)
   , Emoticon(..)
   , Fragment(..)
   , Message(..)
-  , Commenter(..)
-  , Comment(..)
-  , Comments(..)
+  , Video(..)
+  , VideoId
   , emoteUrl
   , getVideo
   , sourceComments
   ) where
+
+import           Network.Request                ( request )
 
 import           Control.Monad.Catch            ( MonadThrow )
 import           Control.Monad.IO.Class         ( MonadIO )
@@ -21,18 +24,11 @@ import           Data.Conduit                   ( ConduitT
                                                 , yield
                                                 )
 import           Data.Foldable                  ( traverse_ )
-import           Data.Function                  ( (&) )
 import           Data.Scientific                ( Scientific )
 import qualified Data.Text                     as T
 import           Data.Text.Encoding             ( encodeUtf8 )
 import           GHC.Generics                   ( Generic )
-import           Network.HTTP.Simple            ( Query
-                                                , addRequestHeader
-                                                , getResponseBody
-                                                , httpJSON
-                                                , parseRequestThrow
-                                                , setRequestQueryString
-                                                )
+import           Network.HTTP.Types             ( Query )
 
 type VideoId = T.Text
 
@@ -41,7 +37,7 @@ newtype Auth = Auth
   } deriving (Show)
 
 newtype Channel = Channel
-  { _id  :: Int
+  { _id :: Int
   } deriving (Generic, Show)
 
 newtype Video = Video
@@ -102,12 +98,7 @@ emoteUrl :: T.Text -> T.Text
 emoteUrl i = "//static-cdn.jtvnw.net/emoticons/v1/" <> i <> "/2.0"
 
 query :: (MonadIO m, MonadThrow m, FromJSON a) => Auth -> T.Text -> Query -> m a
-query auth url q = do
-  req <- parseRequestThrow $ T.unpack url
-  res <- httpJSON $ req
-    & addRequestHeader "Client-ID" (clientId auth)
-    & setRequestQueryString q
-  pure $ getResponseBody res
+query auth url q = request url q [("Client-ID", clientId auth)]
 
 getVideo :: Auth -> VideoId -> IO Video
 getVideo auth vid = query auth (videoUrl vid) []

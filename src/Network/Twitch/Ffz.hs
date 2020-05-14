@@ -3,8 +3,10 @@ module Network.Twitch.Ffz
   , Emote(..)
   , Set(..)
   , channelUrl
+  , getChannel
   ) where
 
+import           Network.Request                ( request )
 import qualified Network.Twitch                as Tv
 
 import           Data.Aeson                     ( FromJSON )
@@ -34,3 +36,6 @@ rootUrl = "https://api.frankerfacez.com/v1"
 
 channelUrl :: Tv.Channel -> T.Text
 channelUrl c = rootUrl <> "/room/id/" <> T.pack (show $ Tv._id c)
+
+getChannel :: Tv.Channel -> IO Channel
+getChannel c = request (channelUrl c) [] []

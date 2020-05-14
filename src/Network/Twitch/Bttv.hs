@@ -4,9 +4,12 @@ module Network.Twitch.Bttv
   , Global
   , channelUrl
   , emoteUrl
+  , getChannel
+  , getGlobal
   , globalUrl
   ) where
 
+import           Network.Request                ( request )
 import qualified Network.Twitch                as Tv
 
 import           Prelude                 hiding ( id )
@@ -42,3 +45,9 @@ channelUrl c = rootUrl <> "/cached/users/twitch/" <> T.pack (show $ Tv._id c)
 
 emoteUrl :: T.Text -> T.Text
 emoteUrl i = "//cdn.betterttv.net/emote/" <> i <> "/2x"
+
+getGlobal :: IO Global
+getGlobal = request globalUrl [] []
+
+getChannel :: Tv.Channel -> IO Channel
+getChannel c = request (channelUrl c) [] []
