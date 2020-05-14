@@ -1,31 +1,36 @@
 module Network.Twitch.Ffz
-  ( Emote(..)
-  , Ffz(..)
+  ( Channel(..)
+  , Emote(..)
   , Set(..)
   , channelUrl
   ) where
+
+import qualified Network.Twitch                as Tv
 
 import           Data.Aeson                     ( FromJSON )
 import qualified Data.Text                     as T
 import qualified Data.HashMap.Strict           as HM
 import           GHC.Generics                   ( Generic )
 
-newtype Ffz = Ffz
-  { sets :: HM.HashMap T.Text Set
+data Emote = Emote
+  { name :: T.Text
+  , urls :: HM.HashMap Int T.Text
   } deriving (Generic, Show)
 
 newtype Set = Set
   { emoticons :: [Emote]
   } deriving (Generic, Show)
 
-data Emote = Emote
-  { name :: T.Text
-  , urls :: HM.HashMap Int T.Text
+newtype Channel = Channel
+  { sets :: HM.HashMap T.Text Set
   } deriving (Generic, Show)
 
-instance FromJSON Ffz
+instance FromJSON Channel
 instance FromJSON Set
 instance FromJSON Emote
 
-channelUrl :: T.Text -> T.Text
-channelUrl c = "https://api.frankerfacez.com/v1/room/" <> c
+rootUrl :: T.Text
+rootUrl = "https://api.frankerfacez.com/v1"
+
+channelUrl :: Tv.Channel -> T.Text
+channelUrl c = rootUrl <> "/room/id/" <> T.pack (show $ Tv._id c)

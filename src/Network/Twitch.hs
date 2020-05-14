@@ -1,5 +1,3 @@
-{-# LANGUAGE DuplicateRecordFields #-}
-
 module Network.Twitch
   ( Auth(..)
   , Channel(..)
@@ -43,7 +41,7 @@ newtype Auth = Auth
   } deriving (Show)
 
 newtype Channel = Channel
-  { name :: T.Text
+  { _id  :: Int
   } deriving (Generic, Show)
 
 newtype Video = Video
@@ -91,8 +89,11 @@ instance FromJSON Commenter
 instance FromJSON Comment
 instance FromJSON Comments
 
+rootUrl :: T.Text
+rootUrl = "https://api.twitch.tv/v5"
+
 videoUrl :: VideoId -> T.Text
-videoUrl vid = "https://api.twitch.tv/v5/videos/" <> vid
+videoUrl vid = rootUrl <> "/videos/" <> vid
 
 commentsUrl :: VideoId -> T.Text
 commentsUrl vid = videoUrl vid <> "/comments"

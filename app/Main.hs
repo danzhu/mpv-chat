@@ -1,4 +1,3 @@
-{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE TemplateHaskell #-}
 
@@ -140,19 +139,26 @@ instance Default Play where
 instance Default State where
   def = State { _play = Nothing }
 
-bttv :: Scope -> Bt.Bttv -> Emotes
-bttv s d = HM.fromList $ map emote $ Bt.emotes d where
-  templ = T.replace "{{image}}" "2x" $ Bt.urlTemplate d
-  emote e = (Bt.code e, ("bttv " <> s, T.replace "{{id}}" (Bt.id e) templ))
+bttv :: Scope -> [Bt.Emote] -> Emotes
+bttv s = HM.fromList . map emote where
+  emote e = (Bt.code e, ("bttv " <> s, Bt.emoteUrl $ Bt.id e))
 
-ffz :: Fz.Ffz -> Emotes
+bttvGlobal :: Bt.Global -> Emotes
+bttvGlobal = bttv "global"
+
+bttvChannel :: Bt.Channel -> Emotes
+bttvChannel = chan <> shared where
+  chan = bttv "channel" . Bt.channelEmotes
+  shared = bttv "channel shared" . Bt.sharedEmotes
+
+ffz :: Fz.Channel -> Emotes
 ffz d = HM.fromList $ map emote . Fz.emoticons =<< HM.elems (Fz.sets d) where
   emote e = (Fz.name e, ("ffz channel", Fz.urls e HM.! 2))
 
-loadEmotes :: T.Text -> IO Emotes
+loadEmotes :: Tv.Channel -> IO Emotes
 loadEmotes chan = fold <$> mapConcurrently id
-  [ bttv "global" <$> get Bt.globalUrl
-  , bttv "channel" <$> get (Bt.channelUrl chan)
+  [ bttvGlobal <$> get Bt.globalUrl
+  , bttvChannel <$> get (Bt.channelUrl chan)
   , ffz <$> get (Fz.channelUrl chan)
   ]
   where
@@ -275,8 +281,7 @@ main = do
             update $ play ?~ def
             forceSync
           video <- Tv.getVideo (conf ^. auth) vid
-          let chan = Tv.name (Tv.channel video :: Tv.Channel)
-          emotes <- loadEmotes chan
+          emotes <- loadEmotes $ Tv.channel video
           let fmt = Tv.content_offset_seconds &&& format emotes
               cat cs = do
                 let cs' = reverse $ map fmt cs
