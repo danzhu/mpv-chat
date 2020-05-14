@@ -10,7 +10,7 @@ module Network.Twitch.Bttv
   ) where
 
 import           Network.Request                ( request )
-import qualified Network.Twitch                as Tv
+import qualified Network.Twitch.Twitch         as Tv
 
 import           Prelude                 hiding ( id )
 import           Data.Aeson                     ( FromJSON )

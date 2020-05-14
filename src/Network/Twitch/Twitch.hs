@@ -1,4 +1,4 @@
-module Network.Twitch
+module Network.Twitch.Twitch
   ( Auth(..)
   , Channel(..)
   , Comment(..)

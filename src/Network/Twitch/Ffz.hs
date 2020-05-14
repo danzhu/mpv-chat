@@ -7,7 +7,7 @@ module Network.Twitch.Ffz
   ) where
 
 import           Network.Request                ( request )
-import qualified Network.Twitch                as Tv
+import qualified Network.Twitch.Twitch         as Tv
 
 import           Data.Aeson                     ( FromJSON )
 import qualified Data.Text                     as T
