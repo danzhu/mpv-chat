@@ -18,7 +18,6 @@ module Network.Mpv
 import qualified Data.IdMap                    as IM
 
 import           Control.Applicative            ( (<|>) )
-import           Control.Concurrent             ( threadDelay )
 import           Control.Concurrent.Async       ( concurrently_
                                                 , link
                                                 , withAsync
@@ -46,13 +45,8 @@ import           Control.Concurrent.STM.TVar    ( TVar
                                                 , readTVarIO
                                                 , stateTVar
                                                 )
-import           Control.Exception              ( Exception
-                                                , bracket
-                                                , tryJust
-                                                )
+import           Control.Exception              ( Exception )
 import           Control.Monad                  ( forever
-                                                , guard
-                                                , when
                                                 , (<=<)
                                                 )
 import           Control.Monad.Catch            ( MonadThrow
@@ -82,28 +76,18 @@ import           Data.Conduit                   ( runConduit
                                                 , (.|)
                                                 )
 import qualified Data.Conduit.Combinators      as C
-import           Data.Conduit.Network           ( sinkSocket
-                                                , sourceSocket
+import           Data.Conduit.Network.Unix      ( appSink
+                                                , appSource
+                                                , clientSettings
+                                                , runUnixClient
                                                 )
-import           Data.Either                    ( isLeft )
 import           Data.Foldable                  ( sequenceA_
                                                 , traverse_
                                                 )
 import           Data.Functor                   ( void )
 import qualified Data.HashMap.Strict           as HM
 import qualified Data.Text                     as T
-import           Network.Socket                 ( Family(AF_UNIX)
-                                                , SockAddr(SockAddrUnix)
-                                                , Socket
-                                                , SocketType(Stream)
-                                                , close
-                                                , connect
-                                                , defaultProtocol
-                                                , socket
-                                                )
-import           System.IO.Error                ( isDoesNotExistError )
 
-type Id = Int
 type Prop = T.Text
 type Error = T.Text
 
@@ -123,11 +107,11 @@ data MpvError
   deriving (Show)
 
 data Request
-  = ReqCommand Id Value
+  = ReqCommand IM.Id Value
   deriving (Show)
 
 data Event
-  = EvtPropChange Id Prop Value
+  = EvtPropChange IM.Id Prop Value
   | EvtOther T.Text
   deriving (Show)
 
@@ -137,7 +121,7 @@ type Reply = Either Error Data
 
 data Response
   = ResEvent Event
-  | ResReply Id Reply
+  | ResReply IM.Id Reply
   deriving (Show)
 
 instance Exception MpvError
@@ -163,15 +147,6 @@ expect e = maybe (throwM e) pure
 
 expectE :: (MonadThrow m, Exception e) => (b -> e) -> Either b a -> m a
 expectE e = either (throwM . e) pure
-
-withSocket :: String -> (Socket -> IO a) -> IO a
-withSocket ipcPath f = bracket open close use where
-  open = socket AF_UNIX Stream defaultProtocol
-  use sock = conn sock *> f sock
-  conn sock = do
-    let redo = guard . isDoesNotExistError
-    r <- tryJust redo $ connect sock $ SockAddrUnix ipcPath
-    when (isLeft r) $ threadDelay 100_000 *> conn sock
 
 withMpv :: FilePath -> (Mpv -> IO a) -> IO a
 withMpv ipcPath f = do
@@ -206,13 +181,13 @@ withMpv ipcPath f = do
         , events = evts
         }
   flip runContT pure $ do
-    sock <- ContT $ withSocket ipcPath
+    app <- ContT $ runUnixClient $ clientSettings ipcPath
     let stdin = runConduit $
           C.repeatM produce
           .| C.unlinesAscii
-          .| sinkSocket sock
+          .| appSink app
         stdout = runConduit $
-          sourceSocket sock
+          appSource app
           .| C.linesUnboundedAscii
           .| C.mapM_ consume
     a <- ContT $ withAsync $ stdin `concurrently_` stdout `concurrently_` handle

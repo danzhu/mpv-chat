@@ -1,3 +1,4 @@
+{-# LANGUAGE DisambiguateRecordFields #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE TemplateHaskell #-}
 
@@ -10,6 +11,7 @@ import           Control.Concurrent.Task        ( killTask
                                                 , runTask
                                                 , withTask
                                                 )
+import qualified Data.SeekBuffer               as SB
 import           Network.Mpv                    ( observeEvent
                                                 , observeProperty
                                                 , tryGetProperty
@@ -39,37 +41,41 @@ import           Control.Concurrent.STM.TVar    ( modifyTVar'
                                                 , writeTVar
                                                 )
 import           Control.Monad                  ( forever
-                                                , when
                                                 , guard
+                                                , unless
                                                 )
 import           Control.Monad.IO.Class         ( liftIO )
 import           Control.Monad.STM              ( atomically )
-import           Control.Monad.Trans.Cont       ( runContT
-                                                , ContT(ContT)
+import           Control.Monad.Trans.Cont       ( ContT(ContT)
+                                                , runContT
                                                 )
 import           Data.Conduit                   ( runConduit
-                                                , (.|)
                                                 , yield
+                                                , (.|)
                                                 )
 import qualified Data.Conduit.Combinators      as C
-import           Data.Default                   ( Default
+import           Data.Default.Class             ( Default
                                                 , def
                                                 )
-import           Data.Foldable                  ( traverse_
-                                                , fold
+import           Data.Foldable                  ( fold
+                                                , traverse_
                                                 )
 import           Data.Function                  ( (&) )
 import qualified Data.HashMap.Strict           as HM
 import qualified Data.List                     as L
 import           Data.Scientific                ( Scientific )
 import qualified Data.Text                     as T
-import           Data.Bool                      ( bool )
-import           Lens.Micro                     ( each
-                                                , has
+import           Data.Maybe                     ( fromMaybe
+                                                , isJust
+                                                )
+import           Lens.Micro                     ( _1
+                                                , _Just
+                                                , _last
                                                 , (%~)
                                                 , (.~)
                                                 , (?~)
                                                 , (^.)
+                                                , (^?)
                                                 )
 import           Lens.Micro.TH                  ( makeLenses )
 import           Network.Wai                    ( pathInfo )
@@ -79,6 +85,9 @@ import           Network.Wai.Handler.Warp       ( Port
                                                 , setBeforeMainLoop
                                                 , setHost
                                                 , setPort
+                                                )
+import           Network.URI                    ( parseURI
+                                                , uriAuthority
                                                 )
 import           Text.Blaze.Html.Renderer.Utf8  ( renderHtml )
 import           Text.Blaze.Html5               ( (!) )
@@ -90,34 +99,26 @@ type Emote = (Scope, T.Text)
 type Emotes = HM.HashMap T.Text Emote
 
 data Play = Play
-  { _comments :: [(Scientific, H.Html)]
+  { _comments :: SB.SeekBuffer Scientific H.Html
   , _done :: Bool
-  , _time :: Scientific
+  , _latest :: Scientific
   }
 
-newtype State = State
-  { _play :: Maybe Play
-  }
+makeLenses ''Play
+
+instance Default Play where
+  def = Play (SB.empty 0) False 0
+
+type State = Maybe Play
 
 data Config = Config
   { _ipcPath :: FilePath
   , _auth :: Tv.Auth
   , _port :: Port
-  } deriving (Show)
+  }
+  deriving (Show)
 
-makeLenses ''Play
-makeLenses ''State
 makeLenses ''Config
-
-instance Default Play where
-  def = Play
-    { _comments = []
-    , _done = False
-    , _time = 0
-    }
-
-instance Default State where
-  def = State { _play = Nothing }
 
 bttv :: Scope -> [Bt.Emote] -> Emotes
 bttv s = HM.fromList . map emote where
@@ -155,44 +156,41 @@ format emotes = comment where
         -- maybe "" (H.div . H.preEscapedToMarkup) $ Tv.bio user
     H.div ! A.class_ "message" $
       traverse_ fragment $ Tv.fragments msg
-  fragment frag = do
-    let txt = Tv.text frag
-    case Tv.emoticon frag of
-      Nothing -> fold $ L.intersperse " " $ map word $ T.split (== ' ') txt
-      Just e -> emote "twitch" txt $ Tv.emoteUrl $ Tv.emoticon_id e
+  fragment Tv.Fragment { text = txt, emoticon = emo }
+    | Just e <- emo = emote "twitch" txt $ Tv.emoteUrl $ Tv.emoticon_id e
+    | otherwise = fold $ L.intersperse " " $ map word $ T.split (== ' ') txt
   word wor
     | Just (ori, url) <- HM.lookup wor emotes = emote ori wor url
     | Just ('@', nam) <- T.uncons wor =
+        -- TODO: link/show mention
         H.span ! A.class_ "mention" $ "@" <> H.toMarkup nam
+    | Just (uriAuthority -> Just _) <- parseURI $ T.unpack wor =
+        H.a ! A.href (H.toValue wor) $ H.toMarkup wor
     | otherwise = H.toMarkup wor
   emote ori txt url = H.img ! A.class_ "emote"
     ! A.src (H.toValue $ "https:" <> url)
     ! A.title (H.toValue $ txt <> " [" <> ori <> "]")
 
 render :: State -> H.Markup
-render state = case state ^. play of
+render = \case
   Nothing -> H.pre "idle"
-  Just pla -> case pla ^. comments of
-    [] -> H.pre "loading..."
-    latest : _ -> do
-      let tim = pla ^. time
-          don = pla ^. done
-          later c = fst c > tim
-      H.pre $ do
-        H.toMarkup (round tim :: Int)
-        " / "
-        H.toMarkup (round $ fst latest :: Int)
-        bool " +" "" don
-      when (don || later latest) $
-        H.ul ! A.class_ "chat" $
-          foldMap snd $ take 100 $ dropWhile later $ pla ^. comments
+  Just (Play cms don lat) -> do
+    let tim = SB.current cms
+    H.pre $ do
+      H.toMarkup (round tim :: Int)
+      " / "
+      H.toMarkup (round lat :: Int)
+      unless don " ..."
+    if not don && tim > lat
+      then H.pre "buffering..."
+      else H.ul ! A.class_ "chat" $ foldMap snd $ take 100 $ SB.past cms
 
 run :: Config -> IO ()
-run conf = do
-  state <- newTVarIO def
-  active <- newTVarIO False
-  seek <- newTVarIO False
-  redraw <- newBroadcastTChanIO
+run conf = flip runContT pure $ do
+  state <- liftIO $ newTVarIO Nothing
+  active <- liftIO $ newTVarIO False
+  seek <- liftIO $ newTVarIO False
+  redraw <- liftIO newBroadcastTChanIO
   let entry = putStrLn $ "server started on port " <> show (conf ^. port)
       update f = do
         modifyTVar' state f
@@ -209,43 +207,45 @@ run conf = do
         & setBeforeMainLoop entry
       app req res = case pathInfo req of
         ["events"] -> res $ responseEvents events
-        _ -> appStatic req res
-  flip runContT pure $ do
-    mpv <- ContT $ withMpv $ conf ^. ipcPath
-    taskLoad <- ContT withTask
-    asyncSync <- ContT $ withAsync $ forever $ do
-      timeout <- registerDelay 1_000_000
-      atomically $ do
-        guard . has (play . each) =<< readTVar state
-        readTVar seek >>= \case
-          True -> writeTVar seek False
-          False -> do
-            guard =<< readTVar active
-            guard =<< readTVar timeout
-      tryGetProperty mpv "playback-time" >>= \case
-        Left "property unavailable" -> pure ()
-        Left e -> fail $ T.unpack e
-        Right t -> atomically $ update $ play . each . time .~ t
-    let forceSync = writeTVar seek True
-        load vid = do
-          atomically $ do
-            update $ play ?~ def
-            forceSync
-          video <- Tv.getVideo (conf ^. auth) vid
-          emotes <- loadEmotes $ Tv.channel video
-          let fmt = Tv.content_offset_seconds &&& format emotes
-              cat cs = do
-                let cs' = reverse $ map fmt cs
-                atomically $ update $ play . each . comments %~ (cs' <>)
-          runConduit $ Tv.sourceComments (conf ^. auth) vid .| C.mapM_ cat
-          atomically $ update $ play . each . done .~ True
-    liftIO $ do
-      link asyncSync
-      observeProperty mpv "filename" $ \case
-        Nothing -> do
-          killTask taskLoad
-          atomically $ update $ play .~ Nothing
-        Just n -> runTask taskLoad $ load n
-      observeProperty mpv "pause" $ atomically . writeTVar active . not
-      observeEvent mpv "seek" $ atomically forceSync
-      runSettings settings app
+        _ -> appStatic "public" req res
+  mpv <- ContT $ withMpv $ conf ^. ipcPath
+  taskLoad <- ContT withTask
+  asyncSync <- ContT $ withAsync $ forever $ do
+    timeout <- registerDelay 1_000_000
+    atomically $ do
+      guard . isJust =<< readTVar state
+      readTVar seek >>= \case
+        True -> writeTVar seek False
+        False -> do
+          guard =<< readTVar active
+          guard =<< readTVar timeout
+    tryGetProperty mpv "playback-time" >>= \case
+      Left "property unavailable" -> pure ()
+      Left e -> fail $ T.unpack e
+      Right t -> atomically $ update $ _Just . comments %~ SB.seek t
+  let forceSync = writeTVar seek True
+      load vid = do
+        atomically $ do
+          update $ id ?~ def
+          forceSync
+        video <- Tv.getVideo (conf ^. auth) vid
+        emotes <- loadEmotes $ Tv.channel video
+        let fmt = Tv.content_offset_seconds &&& format emotes
+            cat cs = atomically $ update $ _Just %~
+              (latest %~ flip fromMaybe (cs' ^? _last . _1)) .
+              (comments %~ SB.append cs')
+              where cs' = map fmt cs
+        runConduit $ Tv.sourceComments (conf ^. auth) vid .| C.mapM_ cat
+        atomically $ update $ _Just . done .~ True
+      unload = do
+        killTask taskLoad
+        atomically $ update $ id .~ Nothing
+  liftIO $ link asyncSync
+  liftIO $ observeProperty mpv "filename/no-ext" $ \case
+    Nothing -> unload
+    Just n -> case Tv.parseVideoId n of
+      Left _ -> unload
+      Right vid -> runTask taskLoad $ load vid
+  liftIO $ observeProperty mpv "pause" $ atomically . writeTVar active . not
+  liftIO $ observeEvent mpv "seek" $ atomically forceSync
+  liftIO $ runSettings settings app

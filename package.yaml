@@ -6,6 +6,7 @@ default-extensions:
 - OverloadedStrings
 - ScopedTypeVariables
 - TupleSections
+- ViewPatterns
 
 ghc-options:
 - -Weverything
@@ -20,37 +21,33 @@ ghc-options:
 - -Wno-unsafe
 
 dependencies:
-# - directory
-# - extra
-# - mtl
-# - process
-# - resourcet
-# - wai-app-static
-# - wai-conduit
-# - wai-extra
-- aeson
-- async
+# === core ===
 - base
-- blaze-html
 - bytestring
-- conduit
-- conduit-extra
 - containers
-- data-default
-- exceptions
 - filepath
-- http-conduit
-- http-types
-- microlens
-- microlens-th
-- mime-types
-- network
-- optparse-applicative
-- scientific
 - stm
 - text
 - transformers
+# === full ===
+- async
+- exceptions
+- network-uri
 - unordered-containers
+# === extra ===
+- aeson
+- blaze-html
+- conduit
+- conduit-extra
+- data-default-class
+- http-conduit
+- http-types
+- megaparsec
+- microlens
+- microlens-th
+- mime-types
+- optparse-applicative
+- scientific
 - wai
 - warp
 

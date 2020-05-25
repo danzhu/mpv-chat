@@ -11,6 +11,7 @@ module Network.Twitch.Twitch
   , VideoId
   , emoteUrl
   , getVideo
+  , parseVideoId
   , sourceComments
   ) where
 
@@ -19,7 +20,9 @@ import           Network.Request                ( request )
 import           Control.Monad.Catch            ( MonadThrow )
 import           Control.Monad.IO.Class         ( MonadIO )
 import           Data.Aeson                     ( FromJSON )
+import           Data.Bifunctor                 ( first )
 import qualified Data.ByteString               as B
+import           Data.Char                      ( isDigit )
 import           Data.Conduit                   ( ConduitT
                                                 , yield
                                                 )
@@ -27,10 +30,17 @@ import           Data.Foldable                  ( traverse_ )
 import           Data.Scientific                ( Scientific )
 import qualified Data.Text                     as T
 import           Data.Text.Encoding             ( encodeUtf8 )
+import           Data.Void                      ( Void )
 import           GHC.Generics                   ( Generic )
 import           Network.HTTP.Types             ( Query )
+import           Text.Megaparsec                ( Parsec
+                                                , runParser
+                                                , takeWhile1P
+                                                , eof
+                                                )
+import           Text.Megaparsec.Error          ( errorBundlePretty )
 
-type VideoId = T.Text
+newtype VideoId = VideoId T.Text
 
 newtype Auth = Auth
   { clientId :: B.ByteString
@@ -89,7 +99,7 @@ rootUrl :: T.Text
 rootUrl = "https://api.twitch.tv/v5"
 
 videoUrl :: VideoId -> T.Text
-videoUrl vid = rootUrl <> "/videos/" <> vid
+videoUrl (VideoId vid) = rootUrl <> "/videos/" <> vid
 
 commentsUrl :: VideoId -> T.Text
 commentsUrl vid = videoUrl vid <> "/comments"
@@ -99,6 +109,11 @@ emoteUrl i = "//static-cdn.jtvnw.net/emoticons/v1/" <> i <> "/2.0"
 
 query :: (MonadIO m, MonadThrow m, FromJSON a) => Auth -> T.Text -> Query -> m a
 query auth url q = request url q [("Client-ID", clientId auth)]
+
+parseVideoId :: T.Text -> Either String VideoId
+parseVideoId = first errorBundlePretty . runParser (p <* eof) "" where
+  p :: Parsec Void T.Text VideoId
+  p = VideoId <$> takeWhile1P (Just "video id") isDigit
 
 getVideo :: Auth -> VideoId -> IO Video
 getVideo auth vid = query auth (videoUrl vid) []

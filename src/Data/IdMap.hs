@@ -1,5 +1,6 @@
 module Data.IdMap
-  ( IdMap
+  ( Id
+  , IdMap
   , empty
   , insert
   , lookup
@@ -9,19 +10,21 @@ module Data.IdMap
 import qualified Data.IntMap.Strict            as IM
 import           Prelude                 hiding ( lookup )
 
-data IdMap a = IdMap Int (IM.IntMap a)
+type Id = Int
+
+data IdMap a = IdMap Id (IM.IntMap a)
   deriving (Show)
 
-empty :: Int -> IdMap a
+empty :: Id -> IdMap a
 empty i = IdMap i IM.empty
 
-insert :: a -> IdMap a -> (Int, IdMap a)
+insert :: a -> IdMap a -> (Id, IdMap a)
 insert a (IdMap i m) = (i, IdMap (succ i) $ IM.insert i a m)
 
-lookup :: Int -> IdMap a -> Maybe a
+lookup :: Id -> IdMap a -> Maybe a
 lookup i (IdMap _ m) = IM.lookup i m
 
-remove :: Int -> IdMap a -> (Maybe a, IdMap a)
+remove :: Id -> IdMap a -> (Maybe a, IdMap a)
 remove i (IdMap i' m) = (a, IdMap i' m') where
   del _ _ = Nothing
   (a, m') = IM.updateLookupWithKey del i m

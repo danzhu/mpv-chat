@@ -4,6 +4,10 @@ body {
     font-family: sans-serif;
 }
 
+a {
+    color: #55bbff;
+}
+
 .chat {
     padding: 0;
     list-style: none;

@@ -49,8 +49,8 @@ routeStatic :: [T.Text] -> [T.Text]
 routeStatic [] = ["index.html"]
 routeStatic p  = p
 
-appStatic :: Application
-appStatic req res
+appStatic :: T.Text -> Application
+appStatic dir req res
   | requestMethod req `notElem` [methodGet, methodHead] =
       res $ responseStatus methodNotAllowed405 []
   | any hiddenFile path = res $ responseStatus forbidden403 []
@@ -61,4 +61,4 @@ appStatic req res
         res $ responseFile ok200 hs fp Nothing
   where
     path = routeStatic $ pathInfo req
-    fp = joinPath $ "public" : map T.unpack path
+    fp = joinPath $ map T.unpack $ dir : path
