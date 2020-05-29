@@ -1,17 +1,14 @@
 {-# LANGUAGE NumericUnderscores #-}
 
 module Network.Mpv
-  ( Event(EvtPropChange, EvtOther)
+  ( MpvError(..)
   , command
-  , command'
   , eventChan
   , getProperty
   , loadfile
   , observeEvent
   , observeProperty
   , setProperty
-  , tryGetProperty
-  , trySetProperty
   , withMpv
   ) where
 
@@ -84,26 +81,25 @@ import           Data.Conduit.Network.Unix      ( appSink
 import           Data.Foldable                  ( sequenceA_
                                                 , traverse_
                                                 )
-import           Data.Functor                   ( void )
 import qualified Data.HashMap.Strict           as HM
+import           Data.Maybe                     ( fromMaybe )
 import qualified Data.Text                     as T
 
 type Prop = T.Text
 type Error = T.Text
 
 data Mpv = Mpv
-  { requests :: TBQueue (Value, TMVar Reply)
-  , handlers :: TVar (HM.HashMap T.Text [IO ()])
+  { requests :: TBQueue ([Value], TMVar Reply)
+  , handlers :: TVar (HM.HashMap T.Text (IO ()))
   , changes :: TVar (IM.IdMap (Value -> IO ()))
   , events :: TChan Event
   }
 
 data MpvError
-  = MpvError Error
+  = MpvIpcError Error
   | MpvTypeError String
   | MpvJsonError B.ByteString String
   | MpvNoReqId
-  | MpvNoData
   deriving (Show)
 
 data Request
@@ -115,6 +111,7 @@ data Event
   | EvtOther T.Text
   deriving (Show)
 
+-- 'Maybe' needed as 'data' field may not exist
 type Data = Maybe Value
 
 type Reply = Either Error Data
@@ -149,16 +146,17 @@ expectE :: (MonadThrow m, Exception e) => (b -> e) -> Either b a -> m a
 expectE e = either (throwM . e) pure
 
 withMpv :: FilePath -> (Mpv -> IO a) -> IO a
-withMpv ipcPath f = do
-  waits <- newTVarIO $ IM.empty 1
-  reqs <- newTBQueueIO 16
-  hans <- newTVarIO HM.empty
-  chns <- newTVarIO $ IM.empty 1
-  evts <- newTChanIO
+withMpv ipcPath = runContT $ do
+  waits <- liftIO $ newTVarIO $ IM.empty 1
+  reqs <- liftIO $ newTBQueueIO 16
+  hans <- liftIO $ newTVarIO HM.empty
+  chns <- liftIO $ newTVarIO $ IM.empty 1
+  evts <- liftIO newTChanIO
+  app <- ContT $ runUnixClient $ clientSettings ipcPath
   let produce = do
         (cmd, wait) <- atomically $ readTBQueue reqs
         rid <- atomically $ stateTVar waits $ IM.insert wait
-        pure $ LB.toStrict $ encode $ ReqCommand rid cmd
+        pure $ LB.toStrict $ encode $ ReqCommand rid $ toJSON cmd
       consume line = do
         res <- expectE (MpvJsonError line) $ eitherDecodeStrict' line
         case res of
@@ -173,77 +171,64 @@ withMpv ipcPath f = do
           traverse_ ($ v) h
         EvtOther e -> do
           h <- HM.lookup e <$> readTVarIO hans
-          traverse_ sequenceA_ h
+          sequenceA_ h
       mpv = Mpv
         { requests = reqs
         , handlers = hans
         , changes = chns
         , events = evts
         }
-  flip runContT pure $ do
-    app <- ContT $ runUnixClient $ clientSettings ipcPath
-    let stdin = runConduit $
-          C.repeatM produce
-          .| C.unlinesAscii
-          .| appSink app
-        stdout = runConduit $
-          appSource app
-          .| C.linesUnboundedAscii
-          .| C.mapM_ consume
-    a <- ContT $ withAsync $ stdin `concurrently_` stdout `concurrently_` handle
-    liftIO $ link a
-    liftIO $ f mpv
+      stdin = runConduit $
+        C.repeatM produce
+        .| C.unlinesAscii
+        .| appSink app
+      stdout = runConduit $
+        appSource app
+        .| C.linesUnboundedAscii
+        .| C.mapM_ consume
+  a <- ContT $ withAsync $ stdin `concurrently_` stdout `concurrently_` handle
+  liftIO $ link a
+  pure mpv
 
 fromJson :: FromJSON a => Value -> IO a
 fromJson = expectE MpvTypeError . parseEither parseJSON
-
-getData :: FromJSON a => Data -> IO a
-getData = fromJson <=< expect MpvNoData
 
 eventChan :: Mpv -> IO (TChan Event)
 eventChan mpv = atomically $ dupTChan $ events mpv
 
 observeEvent :: Mpv -> T.Text -> IO () -> IO ()
 observeEvent mpv e f = atomically $
-  modifyTVar' (handlers mpv) $ HM.insertWith (<>) e [f]
+  modifyTVar' (handlers mpv) $ HM.insertWith (<>) e f
 
-command :: ToJSON cmd => Mpv -> cmd -> IO Reply
-command mpv cmd = do
-  wait <- newEmptyTMVarIO
-  atomically $ writeTBQueue (requests mpv) (toJSON cmd, wait)
-  atomically $ readTMVar wait
+class CommandType a where
+  commandValue :: [Value] -> Mpv -> a
 
-command' :: ToJSON cmd => Mpv -> cmd -> IO Data
-command' mpv = expectE MpvError <=< command mpv
+instance FromJSON r => CommandType (IO r) where
+  commandValue args mpv = do
+    wait <- newEmptyTMVarIO
+    atomically $ writeTBQueue (requests mpv) (reverse args, wait)
+    reply <- atomically $ readTMVar wait
+    r <- expectE MpvIpcError reply
+    -- HACK: round-trip converting '()' to 'Value' and back,
+    -- to reuse 'FromJSON' and avoid custom constraints
+    fromJson $ fromMaybe (toJSON ()) r
 
-cLoadfile :: T.Text
-cLoadfile = "loadfile"
+instance (ToJSON a, CommandType c) => CommandType (a -> c) where
+  commandValue args mpv a = commandValue (toJSON a : args) mpv
 
-cGetProperty :: T.Text
-cGetProperty = "get_property"
-
-cSetProperty :: T.Text
-cSetProperty = "set_property"
-
-cObserveProperty :: T.Text
-cObserveProperty = "observe_property"
+command :: CommandType c => T.Text -> Mpv -> c
+command cmd = commandValue [toJSON cmd]
 
 loadfile :: Mpv -> T.Text -> IO ()
-loadfile mpv url = void $ command' mpv (cLoadfile, url)
-
-tryGetProperty :: FromJSON a => Mpv -> Prop -> IO (Either Error a)
-tryGetProperty mpv p = traverse getData =<< command mpv (cGetProperty, p)
+loadfile = command "loadfile"
 
 getProperty :: FromJSON a => Mpv -> Prop -> IO a
-getProperty mpv p = getData =<< command' mpv (cGetProperty, p)
-
-trySetProperty :: Mpv -> Prop -> Value -> IO (Either Error ())
-trySetProperty mpv p v = void <$> command mpv (cSetProperty, p, v)
+getProperty = command "get_property"
 
 setProperty :: Mpv -> Prop -> Value -> IO ()
-setProperty mpv p v = void $ command' mpv (cSetProperty, p, v)
+setProperty = command "set_property"
 
 observeProperty :: FromJSON a => Mpv -> Prop -> (a -> IO ()) -> IO ()
 observeProperty mpv p f = do
-  i <- atomically $ stateTVar (changes mpv) $ IM.insert (f <=< fromJson)
-  void $ command' mpv (cObserveProperty, i, p)
+  i <- atomically $ stateTVar (changes mpv) $ IM.insert $ f <=< fromJson
+  command "observe_property" mpv i p

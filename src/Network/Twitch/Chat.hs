@@ -1,4 +1,3 @@
-{-# LANGUAGE DisambiguateRecordFields #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE TemplateHaskell #-}
 
@@ -12,9 +11,10 @@ import           Control.Concurrent.Task        ( killTask
                                                 , withTask
                                                 )
 import qualified Data.SeekBuffer               as SB
-import           Network.Mpv                    ( observeEvent
+import           Network.Mpv                    ( MpvError(MpvIpcError)
+                                                , getProperty
+                                                , observeEvent
                                                 , observeProperty
-                                                , tryGetProperty
                                                 , withMpv
                                                 )
 import qualified Network.Twitch.Bttv           as Bt
@@ -40,6 +40,7 @@ import           Control.Concurrent.STM.TVar    ( modifyTVar'
                                                 , registerDelay
                                                 , writeTVar
                                                 )
+import           Control.Exception              ( tryJust )
 import           Control.Monad                  ( forever
                                                 , guard
                                                 , unless
@@ -63,11 +64,11 @@ import           Data.Foldable                  ( fold
 import           Data.Function                  ( (&) )
 import qualified Data.HashMap.Strict           as HM
 import qualified Data.List                     as L
-import           Data.Scientific                ( Scientific )
-import qualified Data.Text                     as T
 import           Data.Maybe                     ( fromMaybe
                                                 , isJust
                                                 )
+import           Data.Scientific                ( Scientific )
+import qualified Data.Text                     as T
 import           Lens.Micro                     ( _1
                                                 , _Just
                                                 , _last
@@ -78,6 +79,9 @@ import           Lens.Micro                     ( _1
                                                 , (^?)
                                                 )
 import           Lens.Micro.TH                  ( makeLenses )
+import           Network.URI                    ( parseURI
+                                                , uriAuthority
+                                                )
 import           Network.Wai                    ( pathInfo )
 import           Network.Wai.Handler.Warp       ( Port
                                                 , defaultSettings
@@ -85,9 +89,6 @@ import           Network.Wai.Handler.Warp       ( Port
                                                 , setBeforeMainLoop
                                                 , setHost
                                                 , setPort
-                                                )
-import           Network.URI                    ( parseURI
-                                                , uriAuthority
                                                 )
 import           Text.Blaze.Html.Renderer.Utf8  ( renderHtml )
 import           Text.Blaze.Html5               ( (!) )
@@ -183,7 +184,7 @@ render = \case
       unless don " ..."
     if not don && tim > lat
       then H.pre "buffering..."
-      else H.ul ! A.class_ "chat" $ foldMap snd $ take 100 $ SB.past cms
+      else H.ul ! A.class_ "chat" $ foldMap snd $ take 500 $ SB.past cms
 
 run :: Config -> IO ()
 run conf = flip runContT pure $ do
@@ -219,10 +220,10 @@ run conf = flip runContT pure $ do
         False -> do
           guard =<< readTVar active
           guard =<< readTVar timeout
-    tryGetProperty mpv "playback-time" >>= \case
-      Left "property unavailable" -> pure ()
-      Left e -> fail $ T.unpack e
-      Right t -> atomically $ update $ _Just . comments %~ SB.seek t
+    let unavail (MpvIpcError "property unavailable") = Just ()
+        unavail _ = Nothing
+        upd t = atomically $ update $ _Just . comments %~ SB.seek t
+    either pure upd =<< tryJust unavail (getProperty mpv "playback-time")
   let forceSync = writeTVar seek True
       load vid = do
         atomically $ do
@@ -244,6 +245,7 @@ run conf = flip runContT pure $ do
   liftIO $ observeProperty mpv "filename/no-ext" $ \case
     Nothing -> unload
     Just n -> case Tv.parseVideoId n of
+      -- TODO: show different message for non-twitch urls
       Left _ -> unload
       Right vid -> runTask taskLoad $ load vid
   liftIO $ observeProperty mpv "pause" $ atomically . writeTVar active . not

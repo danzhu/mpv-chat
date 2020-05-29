@@ -2,10 +2,12 @@ name: mpv-chat
 
 default-extensions:
 - DeriveGeneric
+- DisambiguateRecordFields
 - LambdaCase
 - OverloadedStrings
 - ScopedTypeVariables
 - TupleSections
+- TypeFamilies
 - ViewPatterns
 
 ghc-options:
