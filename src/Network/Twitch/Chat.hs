@@ -75,7 +75,6 @@ import           Lens.Micro                     ( _1
                                                 , (%~)
                                                 , (.~)
                                                 , (?~)
-                                                , (^.)
                                                 , (^?)
                                                 )
 import           Lens.Micro.TH                  ( makeLenses )
@@ -113,13 +112,11 @@ instance Default Play where
 type State = Maybe Play
 
 data Config = Config
-  { _ipcPath :: FilePath
-  , _auth :: Tv.Auth
-  , _port :: Port
+  { ipcPath :: FilePath
+  , auth :: Tv.Auth
+  , port :: Port
   }
   deriving (Show)
-
-makeLenses ''Config
 
 bttv :: Scope -> [Bt.Emote] -> Emotes
 bttv s = HM.fromList . map emote where
@@ -192,7 +189,7 @@ run conf = flip runContT pure $ do
   active <- liftIO $ newTVarIO False
   seek <- liftIO $ newTVarIO False
   redraw <- liftIO newBroadcastTChanIO
-  let entry = putStrLn $ "server started on port " <> show (conf ^. port)
+  let entry = putStrLn $ "server started on port " <> show (port conf)
       update f = do
         modifyTVar' state f
         writeTChan redraw ()
@@ -204,12 +201,12 @@ run conf = flip runContT pure $ do
           liftIO $ atomically $ readTChan red
       settings = defaultSettings
         & setHost "*6"
-        & setPort (conf ^. port)
+        & setPort (port conf)
         & setBeforeMainLoop entry
       app req res = case pathInfo req of
         ["events"] -> res $ responseEvents events
         _ -> appStatic "public" req res
-  mpv <- ContT $ withMpv $ conf ^. ipcPath
+  mpv <- ContT $ withMpv $ ipcPath conf
   taskLoad <- ContT withTask
   asyncSync <- ContT $ withAsync $ forever $ do
     timeout <- registerDelay 1_000_000
@@ -226,17 +223,15 @@ run conf = flip runContT pure $ do
     either pure upd =<< tryJust unavail (getProperty mpv "playback-time")
   let forceSync = writeTVar seek True
       load vid = do
-        atomically $ do
-          update $ id ?~ def
-          forceSync
-        video <- Tv.getVideo (conf ^. auth) vid
+        atomically $ update $ id ?~ def
+        video <- Tv.getVideo (auth conf) vid
         emotes <- loadEmotes $ Tv.channel video
         let fmt = Tv.content_offset_seconds &&& format emotes
             cat cs = atomically $ update $ _Just %~
               (latest %~ flip fromMaybe (cs' ^? _last . _1)) .
               (comments %~ SB.append cs')
               where cs' = map fmt cs
-        runConduit $ Tv.sourceComments (conf ^. auth) vid .| C.mapM_ cat
+        runConduit $ Tv.sourceComments (auth conf) vid .| C.mapM_ cat
         atomically $ update $ _Just . done .~ True
       unload = do
         killTask taskLoad

@@ -88,23 +88,12 @@ import qualified Data.Text                     as T
 type Prop = T.Text
 type Error = T.Text
 
-data Mpv = Mpv
-  { requests :: TBQueue ([Value], TMVar Reply)
-  , handlers :: TVar (HM.HashMap T.Text (IO ()))
-  , changes :: TVar (IM.IdMap (Value -> IO ()))
-  , events :: TChan Event
-  }
-
-data MpvError
-  = MpvIpcError Error
-  | MpvTypeError String
-  | MpvJsonError B.ByteString String
-  | MpvNoReqId
-  deriving (Show)
-
 data Request
   = ReqCommand IM.Id Value
   deriving (Show)
+
+instance ToJSON Request where
+  toJSON (ReqCommand rid cmd) = object ["request_id" .= rid, "command" .= cmd]
 
 data Event
   = EvtPropChange IM.Id Prop Value
@@ -121,11 +110,6 @@ data Response
   | ResReply IM.Id Reply
   deriving (Show)
 
-instance Exception MpvError
-
-instance ToJSON Request where
-  toJSON (ReqCommand rid cmd) = object ["request_id" .= rid, "command" .= cmd]
-
 instance FromJSON Response where
   parseJSON = withObject "Response" $ \o -> do
     let evt "property-change" = EvtPropChange
@@ -139,54 +123,76 @@ instance FromJSON Response where
         reply = ResReply <$> (o .: "request_id") <*> (rep =<< o .: "error")
     event <|> reply
 
+data MpvError
+  = MpvIpcError Error
+  | MpvTypeError String
+  | MpvJsonError B.ByteString String
+  | MpvNoReqId
+  deriving (Show)
+
+instance Exception MpvError
+
+data Mpv = Mpv
+  { requests :: TBQueue ([Value], TMVar Reply)
+  , waits :: TVar (IM.IdMap (TMVar Reply))
+  , handlers :: TVar (HM.HashMap T.Text (IO ()))
+  , changes :: TVar (IM.IdMap (Value -> IO ()))
+  , events :: TChan Event
+  }
+
+newMpvClient :: IO Mpv
+newMpvClient = Mpv
+  <$> newTBQueueIO 16
+  <*> newTVarIO (IM.empty 1)
+  <*> newTVarIO HM.empty
+  <*> newTVarIO (IM.empty 1)
+  <*> newTChanIO
+
 expect :: (MonadThrow m, Exception e) => e -> Maybe a -> m a
 expect e = maybe (throwM e) pure
 
 expectE :: (MonadThrow m, Exception e) => (b -> e) -> Either b a -> m a
 expectE e = either (throwM . e) pure
 
+produce :: Mpv -> IO B.ByteString
+produce mpv = do
+  (cmd, wait) <- atomically $ readTBQueue $ requests mpv
+  rid <- atomically $ stateTVar (waits mpv) $ IM.insert wait
+  pure $ LB.toStrict $ encode $ ReqCommand rid $ toJSON cmd
+
+consume :: Mpv -> B.ByteString -> IO ()
+consume mpv line = do
+  res <- expectE (MpvJsonError line) $ eitherDecodeStrict' line
+  case res of
+    ResEvent evt -> atomically $ writeTChan (events mpv) evt
+    ResReply rid rep -> atomically $ do
+      v <- stateTVar (waits mpv) $ IM.remove rid
+      w <- expect MpvNoReqId v
+      putTMVar w rep
+
+handle :: Mpv -> IO a
+handle mpv = forever $ atomically (readTChan $ events mpv) >>= \case
+  EvtPropChange i _ v -> do
+    h <- IM.lookup i <$> readTVarIO (changes mpv)
+    traverse_ ($ v) h
+  EvtOther e -> do
+    h <- HM.lookup e <$> readTVarIO (handlers mpv)
+    sequenceA_ h
+
 withMpv :: FilePath -> (Mpv -> IO a) -> IO a
 withMpv ipcPath = runContT $ do
-  waits <- liftIO $ newTVarIO $ IM.empty 1
-  reqs <- liftIO $ newTBQueueIO 16
-  hans <- liftIO $ newTVarIO HM.empty
-  chns <- liftIO $ newTVarIO $ IM.empty 1
-  evts <- liftIO newTChanIO
+  mpv <- liftIO newMpvClient
   app <- ContT $ runUnixClient $ clientSettings ipcPath
-  let produce = do
-        (cmd, wait) <- atomically $ readTBQueue reqs
-        rid <- atomically $ stateTVar waits $ IM.insert wait
-        pure $ LB.toStrict $ encode $ ReqCommand rid $ toJSON cmd
-      consume line = do
-        res <- expectE (MpvJsonError line) $ eitherDecodeStrict' line
-        case res of
-          ResEvent evt -> atomically $ writeTChan evts evt
-          ResReply rid rep -> atomically $ do
-            v <- stateTVar waits $ IM.remove rid
-            w <- expect MpvNoReqId v
-            putTMVar w rep
-      handle = forever $ atomically (readTChan evts) >>= \case
-        EvtPropChange i _ v -> do
-          h <- IM.lookup i <$> readTVarIO chns
-          traverse_ ($ v) h
-        EvtOther e -> do
-          h <- HM.lookup e <$> readTVarIO hans
-          sequenceA_ h
-      mpv = Mpv
-        { requests = reqs
-        , handlers = hans
-        , changes = chns
-        , events = evts
-        }
-      stdin = runConduit $
-        C.repeatM produce
+  let stdin = runConduit $
+        C.repeatM (produce mpv)
         .| C.unlinesAscii
         .| appSink app
       stdout = runConduit $
         appSource app
         .| C.linesUnboundedAscii
-        .| C.mapM_ consume
-  a <- ContT $ withAsync $ stdin `concurrently_` stdout `concurrently_` handle
+        .| C.mapM_ (consume mpv)
+  a <- ContT $ withAsync $
+    stdin `concurrently_` stdout `concurrently_` handle mpv
   liftIO $ link a
   pure mpv
 
