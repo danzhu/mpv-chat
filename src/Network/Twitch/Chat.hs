@@ -6,16 +6,19 @@ module Network.Twitch.Chat
   , run
   ) where
 
-import           Control.Concurrent.Task        ( killTask
-                                                , runTask
-                                                , withTask
+import           Control.Concurrent.Task        ( startTask
+                                                , stopTask
+                                                , withEmptyTask
+                                                , withTask_
                                                 )
+import           Control.Monad.ContT            ( contT_ )
 import qualified Data.SeekBuffer               as SB
 import           Network.Mpv                    ( MpvError(MpvIpcError)
                                                 , getProperty
+                                                , newMpvClient
                                                 , observeEvent
                                                 , observeProperty
-                                                , withMpv
+                                                , runMpv
                                                 )
 import qualified Network.Twitch.Bttv           as Bt
 import qualified Network.Twitch.Ffz            as Fz
@@ -24,9 +27,8 @@ import           Network.Wai.Application.Static ( appStatic )
 import           Network.Wai.Response           ( responseEvents )
 
 import           Control.Arrow                  ( (&&&) )
-import           Control.Concurrent.Async       ( link
+import           Control.Concurrent.Async       ( concurrently_
                                                 , mapConcurrently
-                                                , withAsync
                                                 )
 import           Control.Concurrent.STM.TChan   ( dupTChan
                                                 , newBroadcastTChanIO
@@ -48,6 +50,7 @@ import           Control.Monad                  ( forever
 import           Control.Monad.IO.Class         ( liftIO )
 import           Control.Monad.STM              ( atomically )
 import           Control.Monad.Trans.Cont       ( ContT(ContT)
+                                                , evalContT
                                                 , runContT
                                                 )
 import           Data.Conduit                   ( runConduit
@@ -131,7 +134,7 @@ bttvChannel = chan <> shared where
   shared = bttv "channel shared" . Bt.sharedEmotes
 
 ffz :: Fz.Channel -> Emotes
-ffz d = HM.fromList $ map emote . Fz.emoticons =<< HM.elems (Fz.sets d) where
+ffz = HM.fromList . map emote . (Fz.emoticons =<<) . HM.elems . Fz.sets where
   emote e = (Fz.name e, ("ffz channel", Fz.urls e HM.! 2))
 
 loadEmotes :: Tv.Channel -> IO Emotes
@@ -184,15 +187,13 @@ render = \case
       else H.ul ! A.class_ "chat" $ foldMap snd $ take 500 $ SB.past cms
 
 run :: Config -> IO ()
-run conf = flip runContT pure $ do
+run conf = evalContT $ do
   state <- liftIO $ newTVarIO Nothing
   active <- liftIO $ newTVarIO False
   seek <- liftIO $ newTVarIO False
   redraw <- liftIO newBroadcastTChanIO
+
   let entry = putStrLn $ "server started on port " <> show (port conf)
-      update f = do
-        modifyTVar' state f
-        writeTChan redraw ()
       events = do
         red <- liftIO $ atomically $ dupTChan redraw
         forever $ do
@@ -203,12 +204,41 @@ run conf = flip runContT pure $ do
         & setHost "*6"
         & setPort (port conf)
         & setBeforeMainLoop entry
-      app req res = case pathInfo req of
-        ["events"] -> res $ responseEvents events
-        _ -> appStatic "public" req res
-  mpv <- ContT $ withMpv $ ipcPath conf
-  taskLoad <- ContT withTask
-  asyncSync <- ContT $ withAsync $ forever $ do
+      app req = runContT $ case pathInfo req of
+        ["events"] -> pure $ responseEvents events
+        _ -> ContT $ appStatic "public" req
+  contT_ $ withTask_ $ runSettings settings app
+
+  mpv <- liftIO newMpvClient
+  taskLoad <- ContT withEmptyTask
+  let update f = do
+        modifyTVar' state f
+        writeTChan redraw ()
+      forceSync = writeTVar seek True
+      load vid = startTask taskLoad $ do
+        atomically $ update $ id ?~ def
+        video <- Tv.getVideo (auth conf) vid
+        emotes <- loadEmotes $ Tv.channel video
+        let fmt = Tv.content_offset_seconds &&& format emotes
+            cat cs = atomically $ update $ _Just %~
+              (latest %~ flip fromMaybe (cs' ^? _last . _1)) .
+              (comments %~ SB.append cs')
+              where cs' = map fmt cs
+        runConduit $ Tv.sourceComments (auth conf) vid .| C.mapM_ cat
+        atomically $ update $ _Just . done .~ True
+      unload = do
+        stopTask taskLoad
+        atomically $ update $ id .~ Nothing
+      setup = do
+        observeProperty mpv "filename/no-ext" $ \case
+          Nothing -> unload
+          Just n -> case Tv.parseVideoId n of
+            -- TODO: show different message for non-twitch urls
+            Left _ -> unload
+            Right vid -> load vid
+        observeProperty mpv "pause" $ atomically . writeTVar active . not
+        observeEvent mpv "seek" $ atomically forceSync
+  contT_ $ withTask_ $ forever $ do
     timeout <- registerDelay 1_000_000
     atomically $ do
       guard . isJust =<< readTVar state
@@ -221,28 +251,4 @@ run conf = flip runContT pure $ do
         unavail _ = Nothing
         upd t = atomically $ update $ _Just . comments %~ SB.seek t
     either pure upd =<< tryJust unavail (getProperty mpv "playback-time")
-  let forceSync = writeTVar seek True
-      load vid = do
-        atomically $ update $ id ?~ def
-        video <- Tv.getVideo (auth conf) vid
-        emotes <- loadEmotes $ Tv.channel video
-        let fmt = Tv.content_offset_seconds &&& format emotes
-            cat cs = atomically $ update $ _Just %~
-              (latest %~ flip fromMaybe (cs' ^? _last . _1)) .
-              (comments %~ SB.append cs')
-              where cs' = map fmt cs
-        runConduit $ Tv.sourceComments (auth conf) vid .| C.mapM_ cat
-        atomically $ update $ _Just . done .~ True
-      unload = do
-        killTask taskLoad
-        atomically $ update $ id .~ Nothing
-  liftIO $ link asyncSync
-  liftIO $ observeProperty mpv "filename/no-ext" $ \case
-    Nothing -> unload
-    Just n -> case Tv.parseVideoId n of
-      -- TODO: show different message for non-twitch urls
-      Left _ -> unload
-      Right vid -> runTask taskLoad $ load vid
-  liftIO $ observeProperty mpv "pause" $ atomically . writeTVar active . not
-  liftIO $ observeEvent mpv "seek" $ atomically forceSync
-  liftIO $ runSettings settings app
+  liftIO $ runMpv mpv (ipcPath conf) `concurrently_` setup

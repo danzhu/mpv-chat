@@ -6,19 +6,19 @@ module Network.Mpv
   , eventChan
   , getProperty
   , loadfile
+  , newMpvClient
   , observeEvent
   , observeProperty
+  , runMpv
   , setProperty
-  , withMpv
   ) where
 
+import           Control.Concurrent.Task        ( withTask_ )
+import           Control.Monad.ContT            ( contT_ )
 import qualified Data.IdMap                    as IM
 
 import           Control.Applicative            ( (<|>) )
-import           Control.Concurrent.Async       ( concurrently_
-                                                , link
-                                                , withAsync
-                                                )
+import           Control.Concurrent.Async       ( concurrently_ )
 import           Control.Concurrent.STM         ( atomically )
 import           Control.Concurrent.STM.TBQueue ( TBQueue
                                                 , newTBQueueIO
@@ -51,7 +51,7 @@ import           Control.Monad.Catch            ( MonadThrow
                                                 )
 import           Control.Monad.IO.Class         ( liftIO )
 import           Control.Monad.Trans.Cont       ( ContT(ContT)
-                                                , runContT
+                                                , evalContT
                                                 )
 import           Data.Aeson                     ( FromJSON
                                                 , ToJSON
@@ -73,7 +73,8 @@ import           Data.Conduit                   ( runConduit
                                                 , (.|)
                                                 )
 import qualified Data.Conduit.Combinators      as C
-import           Data.Conduit.Network.Unix      ( appSink
+import           Data.Conduit.Network.Unix      ( AppDataUnix
+                                                , appSink
                                                 , appSource
                                                 , clientSettings
                                                 , runUnixClient
@@ -170,6 +171,18 @@ consume mpv line = do
       w <- expect MpvNoReqId v
       putTMVar w rep
 
+stdin :: Mpv -> AppDataUnix -> IO ()
+stdin mpv app = runConduit $
+  C.repeatM (produce mpv)
+  .| C.unlinesAscii
+  .| appSink app
+
+stdout :: Mpv -> AppDataUnix -> IO ()
+stdout mpv app = runConduit $
+  appSource app
+  .| C.linesUnboundedAscii
+  .| C.mapM_ (consume mpv)
+
 handle :: Mpv -> IO a
 handle mpv = forever $ atomically (readTChan $ events mpv) >>= \case
   EvtPropChange i _ v -> do
@@ -179,22 +192,11 @@ handle mpv = forever $ atomically (readTChan $ events mpv) >>= \case
     h <- HM.lookup e <$> readTVarIO (handlers mpv)
     sequenceA_ h
 
-withMpv :: FilePath -> (Mpv -> IO a) -> IO a
-withMpv ipcPath = runContT $ do
-  mpv <- liftIO newMpvClient
+runMpv :: Mpv -> FilePath -> IO ()
+runMpv mpv ipcPath = evalContT $ do
   app <- ContT $ runUnixClient $ clientSettings ipcPath
-  let stdin = runConduit $
-        C.repeatM (produce mpv)
-        .| C.unlinesAscii
-        .| appSink app
-      stdout = runConduit $
-        appSource app
-        .| C.linesUnboundedAscii
-        .| C.mapM_ (consume mpv)
-  a <- ContT $ withAsync $
-    stdin `concurrently_` stdout `concurrently_` handle mpv
-  liftIO $ link a
-  pure mpv
+  contT_ $ withTask_ $ stdin mpv app `concurrently_` handle mpv
+  liftIO $ stdout mpv app
 
 fromJson :: FromJSON a => Value -> IO a
 fromJson = expectE MpvTypeError . parseEither parseJSON
