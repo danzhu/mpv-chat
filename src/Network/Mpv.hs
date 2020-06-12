@@ -14,44 +14,25 @@ module Network.Mpv
   ) where
 
 import           Control.Concurrent.Task        ( withTask_ )
-import           Control.Monad.ContT            ( contT_ )
 import qualified Data.IdMap                    as IM
 
 import           Control.Applicative            ( (<|>) )
-import           Control.Concurrent.Async       ( concurrently_ )
-import           Control.Concurrent.STM         ( atomically )
-import           Control.Concurrent.STM.TBQueue ( TBQueue
-                                                , newTBQueueIO
-                                                , readTBQueue
-                                                , writeTBQueue
-                                                )
-import           Control.Concurrent.STM.TChan   ( TChan
-                                                , dupTChan
-                                                , newTChanIO
-                                                , readTChan
-                                                , writeTChan
-                                                )
-import           Control.Concurrent.STM.TMVar   ( TMVar
-                                                , newEmptyTMVarIO
-                                                , putTMVar
-                                                , readTMVar
-                                                )
-import           Control.Concurrent.STM.TVar    ( TVar
-                                                , modifyTVar'
-                                                , newTVarIO
-                                                , readTVarIO
-                                                , stateTVar
-                                                )
-import           Control.Exception              ( Exception )
+import           Control.Concurrent.STM.TVar    ( stateTVar )
 import           Control.Monad                  ( forever
                                                 , (<=<)
                                                 )
 import           Control.Monad.Catch            ( MonadThrow
                                                 , throwM
                                                 )
-import           Control.Monad.IO.Class         ( liftIO )
-import           Control.Monad.Trans.Cont       ( ContT(ContT)
-                                                , evalContT
+import           Control.Monad.IO.Class         ( MonadIO
+                                                , liftIO
+                                                )
+import           Control.Monad.IO.Unlift        ( MonadUnliftIO
+                                                , withRunInIO
+                                                )
+import           Control.Monad.Trans.Reader     ( ReaderT
+                                                , ask
+                                                , runReaderT
                                                 )
 import           Data.Aeson                     ( FromJSON
                                                 , ToJSON
@@ -85,6 +66,27 @@ import           Data.Foldable                  ( sequenceA_
 import qualified Data.HashMap.Strict           as HM
 import           Data.Maybe                     ( fromMaybe )
 import qualified Data.Text                     as T
+import           UnliftIO.Async                 ( concurrently_ )
+import           UnliftIO.Exception             ( Exception )
+import           UnliftIO.STM                   ( TBQueue
+                                                , TChan
+                                                , TMVar
+                                                , TVar
+                                                , atomically
+                                                , dupTChan
+                                                , modifyTVar'
+                                                , newEmptyTMVarIO
+                                                , newTBQueueIO
+                                                , newTChanIO
+                                                , newTVarIO
+                                                , putTMVar
+                                                , readTBQueue
+                                                , readTChan
+                                                , readTMVar
+                                                , readTVarIO
+                                                , writeTBQueue
+                                                , writeTChan
+                                                )
 
 type Prop = T.Text
 type Error = T.Text
@@ -141,13 +143,7 @@ data Mpv = Mpv
   , events :: TChan Event
   }
 
-newMpvClient :: IO Mpv
-newMpvClient = Mpv
-  <$> newTBQueueIO 16
-  <*> newTVarIO (IM.empty 1)
-  <*> newTVarIO HM.empty
-  <*> newTVarIO (IM.empty 1)
-  <*> newTChanIO
+type MpvIO = ReaderT Mpv IO
 
 expect :: (MonadThrow m, Exception e) => e -> Maybe a -> m a
 expect e = maybe (throwM e) pure
@@ -155,14 +151,24 @@ expect e = maybe (throwM e) pure
 expectE :: (MonadThrow m, Exception e) => (b -> e) -> Either b a -> m a
 expectE e = either (throwM . e) pure
 
-produce :: Mpv -> IO B.ByteString
-produce mpv = do
+newMpvClient :: MonadIO m => m Mpv
+newMpvClient = Mpv
+  <$> newTBQueueIO 16
+  <*> newTVarIO (IM.empty 1)
+  <*> newTVarIO HM.empty
+  <*> newTVarIO (IM.empty 1)
+  <*> newTChanIO
+
+produce :: MpvIO B.ByteString
+produce = do
+  mpv <- ask
   (cmd, wait) <- atomically $ readTBQueue $ requests mpv
   rid <- atomically $ stateTVar (waits mpv) $ IM.insert wait
   pure $ LB.toStrict $ encode $ ReqCommand rid $ toJSON cmd
 
-consume :: Mpv -> B.ByteString -> IO ()
-consume mpv line = do
+consume :: B.ByteString -> MpvIO ()
+consume line = do
+  mpv <- ask
   res <- expectE (MpvJsonError line) $ eitherDecodeStrict' line
   case res of
     ResEvent evt -> atomically $ writeTChan (events mpv) evt
@@ -171,42 +177,45 @@ consume mpv line = do
       w <- expect MpvNoReqId v
       putTMVar w rep
 
-stdin :: Mpv -> AppDataUnix -> IO ()
-stdin mpv app = runConduit $
-  C.repeatM (produce mpv)
+stdin :: AppDataUnix -> MpvIO ()
+stdin app = runConduit $
+  C.repeatM produce
   .| C.unlinesAscii
   .| appSink app
 
-stdout :: Mpv -> AppDataUnix -> IO ()
-stdout mpv app = runConduit $
+stdout :: AppDataUnix -> MpvIO ()
+stdout app = runConduit $
   appSource app
   .| C.linesUnboundedAscii
-  .| C.mapM_ (consume mpv)
+  .| C.mapM_ consume
 
-handle :: Mpv -> IO a
-handle mpv = forever $ atomically (readTChan $ events mpv) >>= \case
-  EvtPropChange i _ v -> do
-    h <- IM.lookup i <$> readTVarIO (changes mpv)
-    traverse_ ($ v) h
-  EvtOther e -> do
-    h <- HM.lookup e <$> readTVarIO (handlers mpv)
-    sequenceA_ h
+handle :: MpvIO a
+handle = do
+  mpv <- ask
+  forever $ atomically (readTChan $ events mpv) >>= \case
+    EvtPropChange i _ v -> do
+      h <- IM.lookup i <$> readTVarIO (changes mpv)
+      liftIO $ traverse_ ($ v) h
+    EvtOther e -> do
+      h <- HM.lookup e <$> readTVarIO (handlers mpv)
+      liftIO $ sequenceA_ h
 
-runMpv :: Mpv -> FilePath -> IO ()
-runMpv mpv ipcPath = evalContT $ do
-  app <- ContT $ runUnixClient $ clientSettings ipcPath
-  contT_ $ withTask_ $ stdin mpv app `concurrently_` handle mpv
-  liftIO $ stdout mpv app
+runMpv :: MonadIO m => Mpv -> FilePath -> m ()
+runMpv mpv ipcPath = liftIO $
+  runUnixClient (clientSettings ipcPath) $ \app ->
+  flip runReaderT mpv $
+  withTask_ (stdin app `concurrently_` handle) $
+  stdout app
 
 fromJson :: FromJSON a => Value -> IO a
 fromJson = expectE MpvTypeError . parseEither parseJSON
 
-eventChan :: Mpv -> IO (TChan Event)
+eventChan :: MonadIO m => Mpv -> m (TChan Event)
 eventChan mpv = atomically $ dupTChan $ events mpv
 
-observeEvent :: Mpv -> T.Text -> IO () -> IO ()
-observeEvent mpv e f = atomically $
-  modifyTVar' (handlers mpv) $ HM.insertWith (<>) e f
+observeEvent :: MonadUnliftIO m => Mpv -> T.Text -> m () -> m ()
+observeEvent mpv e f = withRunInIO $ \run -> atomically $
+  modifyTVar' (handlers mpv) $ HM.insertWith (<>) e $ run f
 
 class CommandType a where
   commandValue :: [Value] -> Mpv -> a
@@ -236,7 +245,9 @@ getProperty = command "get_property"
 setProperty :: Mpv -> Prop -> Value -> IO ()
 setProperty = command "set_property"
 
-observeProperty :: FromJSON a => Mpv -> Prop -> (a -> IO ()) -> IO ()
-observeProperty mpv p f = do
-  i <- atomically $ stateTVar (changes mpv) $ IM.insert $ f <=< fromJson
+observeProperty ::
+  (MonadUnliftIO m, FromJSON a) =>
+  Mpv -> Prop -> (a -> m ()) -> m ()
+observeProperty mpv p f = withRunInIO $ \run -> do
+  i <- atomically $ stateTVar (changes mpv) $ IM.insert $ run . f <=< fromJson
   command "observe_property" mpv i p

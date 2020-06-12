@@ -27,32 +27,18 @@ import           Network.Wai.Application.Static ( appStatic )
 import           Network.Wai.Response           ( responseEvents )
 
 import           Control.Arrow                  ( (&&&) )
-import           Control.Concurrent.Async       ( concurrently_
-                                                , mapConcurrently
-                                                )
-import           Control.Concurrent.STM.TChan   ( dupTChan
-                                                , newBroadcastTChanIO
-                                                , readTChan
-                                                , writeTChan
-                                                )
-import           Control.Concurrent.STM.TVar    ( modifyTVar'
-                                                , newTVarIO
-                                                , readTVar
-                                                , readTVarIO
-                                                , registerDelay
-                                                , writeTVar
-                                                )
-import           Control.Exception              ( tryJust )
 import           Control.Monad                  ( forever
                                                 , guard
                                                 , unless
                                                 )
-import           Control.Monad.IO.Class         ( liftIO )
-import           Control.Monad.STM              ( atomically )
+import           Control.Monad.IO.Class         ( MonadIO
+                                                , liftIO
+                                                )
 import           Control.Monad.Trans.Cont       ( ContT(ContT)
                                                 , evalContT
                                                 , runContT
                                                 )
+import           Control.Monad.Trans.Class      ( lift )
 import           Data.Conduit                   ( runConduit
                                                 , yield
                                                 , (.|)
@@ -96,6 +82,22 @@ import           Text.Blaze.Html.Renderer.Utf8  ( renderHtml )
 import           Text.Blaze.Html5               ( (!) )
 import qualified Text.Blaze.Html5              as H
 import qualified Text.Blaze.Html5.Attributes   as A
+import           UnliftIO.Async                 ( concurrently_
+                                                , mapConcurrently
+                                                )
+import           UnliftIO.Exception             ( tryJust )
+import           UnliftIO.STM                   ( atomically
+                                                , dupTChan
+                                                , modifyTVar'
+                                                , newBroadcastTChanIO
+                                                , newTVarIO
+                                                , readTChan
+                                                , readTVar
+                                                , readTVarIO
+                                                , registerDelay
+                                                , writeTChan
+                                                , writeTVar
+                                                )
 
 type Scope = T.Text
 type Emote = (Scope, T.Text)
@@ -137,8 +139,8 @@ ffz :: Fz.Channel -> Emotes
 ffz = HM.fromList . map emote . (Fz.emoticons =<<) . HM.elems . Fz.sets where
   emote e = (Fz.name e, ("ffz channel", Fz.urls e HM.! 2))
 
-loadEmotes :: Tv.Channel -> IO Emotes
-loadEmotes chan = fold <$> mapConcurrently id
+loadEmotes :: MonadIO m => Tv.Channel -> m Emotes
+loadEmotes chan = liftIO $ fold <$> mapConcurrently id
   [ bttvGlobal <$> Bt.getGlobal
   , bttvChannel <$> Bt.getChannel chan
   , ffz <$> Fz.getChannel chan
@@ -188,18 +190,18 @@ render = \case
 
 run :: Config -> IO ()
 run conf = evalContT $ do
-  state <- liftIO $ newTVarIO Nothing
-  active <- liftIO $ newTVarIO False
-  seek <- liftIO $ newTVarIO False
-  redraw <- liftIO newBroadcastTChanIO
+  state <- newTVarIO Nothing
+  active <- newTVarIO False
+  seek <- newTVarIO False
+  redraw <- newBroadcastTChanIO
 
   let entry = putStrLn $ "server started on port " <> show (port conf)
       events = do
-        red <- liftIO $ atomically $ dupTChan redraw
+        red <- atomically $ dupTChan redraw
         forever $ do
-          s <- liftIO $ readTVarIO state
+          s <- readTVarIO state
           yield $ renderHtml $ render s
-          liftIO $ atomically $ readTChan red
+          atomically $ readTChan red
       settings = defaultSettings
         & setHost "*6"
         & setPort (port conf)
@@ -209,7 +211,7 @@ run conf = evalContT $ do
         _ -> ContT $ appStatic "public" req
   contT_ $ withTask_ $ runSettings settings app
 
-  mpv <- liftIO newMpvClient
+  mpv <- newMpvClient
   taskLoad <- ContT withEmptyTask
   let update f = do
         modifyTVar' state f
@@ -251,4 +253,4 @@ run conf = evalContT $ do
         unavail _ = Nothing
         upd t = atomically $ update $ _Just . comments %~ SB.seek t
     either pure upd =<< tryJust unavail (getProperty mpv "playback-time")
-  liftIO $ runMpv mpv (ipcPath conf) `concurrently_` setup
+  lift $ runMpv mpv (ipcPath conf) `concurrently_` setup

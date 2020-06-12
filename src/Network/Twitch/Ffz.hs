@@ -9,6 +9,7 @@ module Network.Twitch.Ffz
 import           Network.Request                ( request )
 import qualified Network.Twitch.Twitch         as Tv
 
+import           Control.Monad.IO.Class         ( MonadIO )
 import           Data.Aeson                     ( FromJSON )
 import qualified Data.Text                     as T
 import qualified Data.HashMap.Strict           as HM
@@ -37,5 +38,5 @@ rootUrl = "https://api.frankerfacez.com/v1"
 channelUrl :: Tv.Channel -> T.Text
 channelUrl c = rootUrl <> "/room/id/" <> T.pack (show $ Tv._id c)
 
-getChannel :: Tv.Channel -> IO Channel
+getChannel :: MonadIO m => Tv.Channel -> m Channel
 getChannel c = request (channelUrl c) [] []

@@ -10,56 +10,57 @@ module Control.Concurrent.Task
   , withTask_
   ) where
 
-import           Control.Concurrent.Async       ( Async
+import           Control.Monad.IO.Class         ( MonadIO )
+import           Control.Monad.IO.Unlift        ( MonadUnliftIO )
+import           Data.Foldable                  ( traverse_ )
+import           UnliftIO.Async                 ( Async
                                                 , async
                                                 , cancel
                                                 , link
                                                 , uninterruptibleCancel
                                                 )
-import           Control.Concurrent.STM.TMVar   ( newEmptyTMVarIO
+import           UnliftIO.Exception             ( bracket )
+import           UnliftIO.STM                   ( TVar
+                                                , atomically
+                                                , newEmptyTMVarIO
+                                                , newTVarIO
                                                 , putTMVar
                                                 , readTMVar
-                                                )
-import           Control.Concurrent.STM.TVar    ( TVar
-                                                , newTVarIO
                                                 , readTVarIO
                                                 , swapTVar
                                                 )
-import           Control.Exception              ( bracket )
-import           Control.Monad.STM              ( atomically )
-import           Data.Foldable                  ( traverse_ )
 
 newtype Task = Task (TVar (Maybe (Async ())))
 
-replace :: Task -> Maybe (Async ()) -> IO ()
+replace :: MonadIO m => Task -> Maybe (Async ()) -> m ()
 replace (Task v) n = do
   t <- atomically $ swapTVar v n
   traverse_ cancel t
 
-newEmptyTask :: IO Task
+newEmptyTask :: MonadIO m => m Task
 newEmptyTask = Task <$> newTVarIO Nothing
 
-newTask :: IO () -> IO Task
+newTask :: MonadUnliftIO m => m () -> m Task
 newTask f = do
   a <- async f
   link a
   Task <$> newTVarIO (Just a)
 
-killTask :: Task -> IO ()
+killTask :: MonadIO m => Task -> m ()
 killTask (Task v) = do
   t <- readTVarIO v
   traverse_ uninterruptibleCancel t
 
-withEmptyTask :: (Task -> IO a) -> IO a
+withEmptyTask :: MonadUnliftIO m => (Task -> m a) -> m a
 withEmptyTask = bracket newEmptyTask killTask
 
-withTask :: IO () -> (Task -> IO a) -> IO a
+withTask :: MonadUnliftIO m => m () -> (Task -> m a) -> m a
 withTask f = bracket (newTask f) killTask
 
-withTask_ :: IO () -> IO a -> IO a
+withTask_ :: MonadUnliftIO m => m () -> m a -> m a
 withTask_ f = withTask f . const
 
-startTask :: Task -> IO () -> IO ()
+startTask :: MonadUnliftIO m => Task -> m () -> m ()
 startTask t f = do
   w <- newEmptyTMVarIO
   a <- async $ atomically (readTMVar w) *> f
@@ -67,5 +68,5 @@ startTask t f = do
   replace t $ Just a
   atomically $ putTMVar w ()
 
-stopTask :: Task -> IO ()
+stopTask :: MonadIO m => Task -> m ()
 stopTask t = replace t Nothing

@@ -50,6 +50,8 @@ dependencies:
 - mime-types
 - optparse-applicative
 - scientific
+- unliftio
+- unliftio-core
 - wai
 - warp
 

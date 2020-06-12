@@ -17,7 +17,6 @@ module Network.Twitch.Twitch
 
 import           Network.Request                ( request )
 
-import           Control.Monad.Catch            ( MonadThrow )
 import           Control.Monad.IO.Class         ( MonadIO )
 import           Data.Aeson                     ( FromJSON )
 import           Data.Bifunctor                 ( first )
@@ -107,7 +106,7 @@ commentsUrl vid = videoUrl vid <> "/comments"
 emoteUrl :: T.Text -> T.Text
 emoteUrl i = "//static-cdn.jtvnw.net/emoticons/v1/" <> i <> "/2.0"
 
-query :: (MonadIO m, MonadThrow m, FromJSON a) => Auth -> T.Text -> Query -> m a
+query :: (MonadIO m, FromJSON a) => Auth -> T.Text -> Query -> m a
 query auth url q = request url q [("Client-ID", clientId auth)]
 
 parseVideoId :: T.Text -> Either String VideoId
@@ -115,10 +114,10 @@ parseVideoId = first errorBundlePretty . runParser (p <* eof) "" where
   p :: Parsec Void T.Text VideoId
   p = VideoId <$> takeWhile1P (Just "video id") isDigit
 
-getVideo :: Auth -> VideoId -> IO Video
+getVideo :: MonadIO m => Auth -> VideoId -> m Video
 getVideo auth vid = query auth (videoUrl vid) []
 
-sourceComments :: Auth -> VideoId -> ConduitT i [Comment] IO ()
+sourceComments :: MonadIO m => Auth -> VideoId -> ConduitT i [Comment] m ()
 sourceComments auth vid = fetch "" where
   fetch cur = do
     cs <- query auth (commentsUrl vid) [("cursor", Just $ encodeUtf8 cur)]

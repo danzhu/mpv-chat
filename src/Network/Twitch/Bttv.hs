@@ -12,10 +12,11 @@ module Network.Twitch.Bttv
 import           Network.Request                ( request )
 import qualified Network.Twitch.Twitch         as Tv
 
-import           Prelude                 hiding ( id )
+import           Control.Monad.IO.Class         ( MonadIO )
 import           Data.Aeson                     ( FromJSON )
 import qualified Data.Text                     as T
 import           GHC.Generics                   ( Generic )
+import           Prelude                 hiding ( id )
 
 -- HACK: v3 shared emote has different structure than global/channel,
 -- here are common fields to avoid different types
@@ -46,8 +47,8 @@ channelUrl c = rootUrl <> "/cached/users/twitch/" <> T.pack (show $ Tv._id c)
 emoteUrl :: T.Text -> T.Text
 emoteUrl i = "//cdn.betterttv.net/emote/" <> i <> "/2x"
 
-getGlobal :: IO Global
+getGlobal :: MonadIO m => m Global
 getGlobal = request globalUrl [] []
 
-getChannel :: Tv.Channel -> IO Channel
+getChannel :: MonadIO m => Tv.Channel -> m Channel
 getChannel c = request (channelUrl c) [] []
