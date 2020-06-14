@@ -2,8 +2,6 @@ module Network.Wai.Application.Static
   ( appStatic
   ) where
 
-import           Network.Wai.Response           ( responseStatus )
-
 import           Control.Exception              ( IOException
                                                 , try
                                                 )
@@ -19,7 +17,8 @@ import           Network.HTTP.Types.Header      ( hContentType )
 import           Network.HTTP.Types.Method      ( methodGet
                                                 , methodHead
                                                 )
-import           Network.HTTP.Types.Status      ( forbidden403
+import           Network.HTTP.Types.Status      ( Status
+                                                , forbidden403
                                                 , methodNotAllowed405
                                                 , notFound404
                                                 , ok200
@@ -49,16 +48,15 @@ routeStatic :: [T.Text] -> [T.Text]
 routeStatic [] = ["index.html"]
 routeStatic p  = p
 
-appStatic :: T.Text -> Application
-appStatic dir req res
+appStatic :: (Status -> Application) -> T.Text -> Application
+appStatic err dir req res
   | requestMethod req `notElem` [methodGet, methodHead] =
-      res $ responseStatus methodNotAllowed405 []
-  | any hiddenFile path = res $ responseStatus forbidden403 []
+      err methodNotAllowed405 req res
+  | any hiddenFile path = err forbidden403 req res
   | otherwise = try (getFileInfo req fp) >>= \case
-      Left (_ :: IOException) -> res $ responseStatus notFound404 []
-      Right _ -> do
-        let hs = path ^.. _last . to mimeByExt . each . to (hContentType,)
-        res $ responseFile ok200 hs fp Nothing
+      Left (_ :: IOException) -> err notFound404 req res
+      Right _ -> res $ responseFile ok200 hs fp Nothing
   where
     path = routeStatic $ pathInfo req
     fp = joinPath $ map T.unpack $ dir : path
+    hs = path ^.. _last . to mimeByExt . each . to (hContentType,)

@@ -1,35 +1,33 @@
 module Data.SeekBuffer
   ( SeekBuffer
   , append
-  , current
   , empty
   , future
   , past
   , seek
   ) where
 
-data SeekBuffer k v = SeekBuffer
-  { past :: [(k, v)]
-  , future :: [(k, v)]
-  , current :: k
+data SeekBuffer a = SeekBuffer
+  { past :: [a]
+  , future :: [a]
   }
   deriving (Show)
 
-empty :: k -> SeekBuffer k v
+empty :: SeekBuffer a
 empty = SeekBuffer [] []
 
-append :: Ord k => [(k, v)] -> SeekBuffer k v -> SeekBuffer k v
-append as (SeekBuffer ps ns c) = seekForward $ SeekBuffer ps (ns <> as) c
+append :: [a] -> SeekBuffer a -> SeekBuffer a
+append as (SeekBuffer ps ns) = SeekBuffer ps $ ns <> as
 
-seek :: Ord k => k -> SeekBuffer k v -> SeekBuffer k v
-seek k sb = seekBackward $ seekForward sb { current = k }
+seek :: (a -> Bool) -> SeekBuffer a -> SeekBuffer a
+seek adv sb = seekBackward adv $ seekForward adv sb
 
-seekForward :: Ord k => SeekBuffer k v -> SeekBuffer k v
-seekForward (SeekBuffer ps (p@(k, _) : ns) c)
-  | k < c = seekForward $ SeekBuffer (p : ps) ns c
-seekForward sb = sb
+seekForward :: (a -> Bool) -> SeekBuffer a -> SeekBuffer a
+seekForward adv (SeekBuffer ps (c : ns))
+  | adv c = seekForward adv $ SeekBuffer (c : ps) ns
+seekForward _ sb = sb
 
-seekBackward :: Ord k => SeekBuffer k v -> SeekBuffer k v
-seekBackward (SeekBuffer (p@(k, _) : ps) ns c)
-  | k >= c = seekBackward $ SeekBuffer ps (p : ns) c
-seekBackward sb = sb
+seekBackward :: (a -> Bool) -> SeekBuffer a -> SeekBuffer a
+seekBackward adv (SeekBuffer (c : ps) ns)
+  | not $ adv c = seekBackward adv $ SeekBuffer ps (c : ns)
+seekBackward _ sb = sb

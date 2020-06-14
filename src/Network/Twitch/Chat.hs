@@ -7,7 +7,6 @@ module Network.Twitch.Chat
   ) where
 
 import           Control.Concurrent.Task        ( startTask
-                                                , stopTask
                                                 , withEmptyTask
                                                 , withTask_
                                                 )
@@ -24,7 +23,13 @@ import qualified Network.Twitch.Bttv           as Bt
 import qualified Network.Twitch.Ffz            as Fz
 import qualified Network.Twitch.Twitch         as Tv
 import           Network.Wai.Application.Static ( appStatic )
-import           Network.Wai.Response           ( responseEvents )
+import           Network.Wai.IO                 ( eventData
+                                                , responseEvents
+                                                , responsePlainStatus
+                                                )
+import           Network.Wai.Monad              ( application
+                                                , runApp
+                                                )
 
 import           Control.Arrow                  ( (&&&) )
 import           Control.Monad                  ( forever
@@ -36,9 +41,9 @@ import           Control.Monad.IO.Class         ( MonadIO
                                                 )
 import           Control.Monad.Trans.Cont       ( ContT(ContT)
                                                 , evalContT
-                                                , runContT
                                                 )
 import           Control.Monad.Trans.Class      ( lift )
+import           Control.Monad.Trans.Reader     ( asks )
 import           Data.Conduit                   ( runConduit
                                                 , yield
                                                 , (.|)
@@ -65,6 +70,7 @@ import           Lens.Micro                     ( _1
                                                 , (.~)
                                                 , (?~)
                                                 , (^?)
+                                                , (^.)
                                                 )
 import           Lens.Micro.TH                  ( makeLenses )
 import           Network.URI                    ( parseURI
@@ -82,6 +88,7 @@ import           Text.Blaze.Html.Renderer.Utf8  ( renderHtml )
 import           Text.Blaze.Html5               ( (!) )
 import qualified Text.Blaze.Html5              as H
 import qualified Text.Blaze.Html5.Attributes   as A
+import           Text.Printf                    ( printf )
 import           UnliftIO.Async                 ( concurrently_
                                                 , mapConcurrently
                                                 )
@@ -104,15 +111,17 @@ type Emote = (Scope, T.Text)
 type Emotes = HM.HashMap T.Text Emote
 
 data Play = Play
-  { _comments :: SB.SeekBuffer Scientific H.Html
+  { _comments :: SB.SeekBuffer (Scientific, H.Html)
   , _done :: Bool
+  , _current :: Scientific
+  , _delay :: Scientific
   , _latest :: Scientific
   }
 
 makeLenses ''Play
 
 instance Default Play where
-  def = Play (SB.empty 0) False 0
+  def = Play SB.empty False 0 0 0
 
 type State = Maybe Play
 
@@ -177,16 +186,21 @@ format emotes = comment where
 render :: State -> H.Markup
 render = \case
   Nothing -> H.pre "idle"
-  Just (Play cms don lat) -> do
-    let tim = SB.current cms
+  Just (Play cms don cur del lat) -> do
     H.pre $ do
-      H.toMarkup (round tim :: Int)
+      H.toMarkup (round cur :: Int)
+      H.string $ printf " [%+d]" (round del :: Int)
       " / "
       H.toMarkup (round lat :: Int)
       unless don " ..."
-    if not don && tim > lat
+    if not don && null (SB.future cms)
       then H.pre "buffering..."
       else H.ul ! A.class_ "chat" $ foldMap snd $ take 500 $ SB.past cms
+
+reseek :: Play -> Play
+reseek p = comments %~ SB.seek adv $ p where
+  adv (t', _) = t' < t
+  t = p ^. current - p ^. delay
 
 run :: Config -> IO ()
 run conf = evalContT $ do
@@ -196,27 +210,28 @@ run conf = evalContT $ do
   redraw <- newBroadcastTChanIO
 
   let entry = putStrLn $ "server started on port " <> show (port conf)
-      events = do
-        red <- atomically $ dupTChan redraw
-        forever $ do
-          s <- readTVarIO state
-          yield $ renderHtml $ render s
-          atomically $ readTChan red
       settings = defaultSettings
         & setHost "*6"
         & setPort (port conf)
         & setBeforeMainLoop entry
-      app req = runContT $ case pathInfo req of
-        ["events"] -> pure $ responseEvents events
-        _ -> ContT $ appStatic "public" req
-  contT_ $ withTask_ $ runSettings settings app
+      err stat = pure $ responsePlainStatus stat []
+      events = pure $ responseEvents $ do
+        red <- atomically $ dupTChan redraw
+        forever $ do
+          s <- readTVarIO state
+          yield def { eventData = renderHtml $ render s }
+          atomically $ readTChan red
+      static = application $ appStatic (runApp . err) "public"
+      app = asks pathInfo >>= \case
+        ["events"] -> events
+        _ -> static
+  contT_ $ withTask_ $ runSettings settings $ runApp app
 
   mpv <- newMpvClient
   taskLoad <- ContT withEmptyTask
   let update f = do
         modifyTVar' state f
         writeTChan redraw ()
-      forceSync = writeTVar seek True
       load vid = startTask taskLoad $ do
         atomically $ update $ id ?~ def
         video <- Tv.getVideo (auth conf) vid
@@ -224,12 +239,12 @@ run conf = evalContT $ do
         let fmt = Tv.content_offset_seconds &&& format emotes
             cat cs = atomically $ update $ _Just %~
               (latest %~ flip fromMaybe (cs' ^? _last . _1)) .
+              reseek .
               (comments %~ SB.append cs')
               where cs' = map fmt cs
         runConduit $ Tv.sourceComments (auth conf) vid .| C.mapM_ cat
         atomically $ update $ _Just . done .~ True
-      unload = do
-        stopTask taskLoad
+      unload = startTask taskLoad $
         atomically $ update $ id .~ Nothing
       setup = do
         observeProperty mpv "filename/no-ext" $ \case
@@ -239,7 +254,9 @@ run conf = evalContT $ do
             Left _ -> unload
             Right vid -> load vid
         observeProperty mpv "pause" $ atomically . writeTVar active . not
-        observeEvent mpv "seek" $ atomically forceSync
+        observeProperty mpv "sub-delay" $ \d ->
+          atomically $ update $ _Just %~ reseek . (delay .~ d)
+        observeEvent mpv "seek" $ atomically $ writeTVar seek True
   contT_ $ withTask_ $ forever $ do
     timeout <- registerDelay 1_000_000
     atomically $ do
@@ -251,6 +268,6 @@ run conf = evalContT $ do
           guard =<< readTVar timeout
     let unavail (MpvIpcError "property unavailable") = Just ()
         unavail _ = Nothing
-        upd t = atomically $ update $ _Just . comments %~ SB.seek t
+        upd t = atomically $ update $ _Just %~ reseek . (current .~ t)
     either pure upd =<< tryJust unavail (getProperty mpv "playback-time")
   lift $ runMpv mpv (ipcPath conf) `concurrently_` setup

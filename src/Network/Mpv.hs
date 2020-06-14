@@ -1,7 +1,8 @@
 {-# LANGUAGE NumericUnderscores #-}
 
 module Network.Mpv
-  ( MpvError(..)
+  ( Mpv
+  , MpvError(..)
   , command
   , eventChan
   , getProperty
