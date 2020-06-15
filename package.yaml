@@ -14,6 +14,7 @@ ghc-options:
 - -Weverything
 - -Wno-all-missed-specialisations
 - -Wno-implicit-prelude
+- -Wno-missed-specialisations
 - -Wno-missing-deriving-strategies
 - -Wno-missing-exported-signatures
 - -Wno-missing-import-lists
@@ -23,40 +24,40 @@ ghc-options:
 - -Wno-unsafe
 
 dependencies:
-# === core ===
 - base
-- bytestring
-- containers
-- filepath
-- stm
-- text
-- transformers
-# === full ===
-- async
-- exceptions
-- network-uri
-- unordered-containers
-# === extra ===
-- aeson
-- blaze-html
-- conduit
-- conduit-extra
-- data-default-class
-- http-conduit
-- http-types
-- megaparsec
-- microlens
-- microlens-th
-- mime-types
-- optparse-applicative
-- scientific
-- unliftio
-- unliftio-core
-- wai
-- warp
 
 library:
   source-dirs: src
+  dependencies:
+  # === core ===
+  - bytestring
+  - containers
+  - filepath
+  - stm
+  - text
+  - transformers
+  # === full ===
+  - async
+  - exceptions
+  - network-uri
+  - unordered-containers
+  # === extra ===
+  - aeson
+  - blaze-html
+  - conduit
+  - conduit-extra
+  - data-default-class
+  - http-conduit
+  - http-types
+  - megaparsec
+  - microlens
+  - microlens-th
+  - mime-types
+  - scientific
+  - unliftio
+  - unliftio-core
+  - wai
+  - warp
 
 executables:
   mpv-chat:
@@ -68,3 +69,4 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - mpv-chat
+    - optparse-applicative
