@@ -26,6 +26,7 @@ import           Data.Conduit                   ( ConduitT
                                                 , yield
                                                 )
 import           Data.Foldable                  ( traverse_ )
+import qualified Data.List.NonEmpty            as NE
 import           Data.Scientific                ( Scientific )
 import qualified Data.Text                     as T
 import           Data.Text.Encoding             ( encodeUtf8 )
@@ -64,7 +65,7 @@ data Fragment = Fragment
 
 data Message = Message
   { body       :: T.Text
-  , fragments  :: [Fragment]
+  , fragments  :: NE.NonEmpty Fragment
   , user_color :: Maybe T.Text
   } deriving (Generic, Show)
 
@@ -81,7 +82,7 @@ data Comment = Comment
   } deriving (Generic, Show)
 
 data Comments = Comments
-  { comments :: [Comment]
+  { comments :: NE.NonEmpty Comment
   , _next    :: Maybe T.Text
   } deriving (Generic, Show)
 
@@ -117,7 +118,7 @@ parseVideoId = first errorBundlePretty . runParser (p <* eof) "" where
 getVideo :: MonadIO m => Auth -> VideoId -> m Video
 getVideo auth vid = query auth (videoUrl vid) []
 
-sourceComments :: MonadIO m => Auth -> VideoId -> ConduitT i [Comment] m ()
+sourceComments :: MonadIO m => Auth -> VideoId -> ConduitT i (NE.NonEmpty Comment) m ()
 sourceComments auth vid = fetch "" where
   fetch cur = do
     cs <- query auth (commentsUrl vid) [("cursor", Just $ encodeUtf8 cur)]

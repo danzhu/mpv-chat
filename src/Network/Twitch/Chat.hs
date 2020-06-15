@@ -58,18 +58,14 @@ import           Data.Foldable                  ( fold
 import           Data.Function                  ( (&) )
 import qualified Data.HashMap.Strict           as HM
 import qualified Data.List                     as L
-import           Data.Maybe                     ( fromMaybe
-                                                , isJust
-                                                )
+import qualified Data.List.NonEmpty            as NE
+import           Data.Maybe                     ( isJust )
 import           Data.Scientific                ( Scientific )
 import qualified Data.Text                     as T
-import           Lens.Micro                     ( _1
-                                                , _Just
-                                                , _last
+import           Lens.Micro                     ( _Just
                                                 , (%~)
                                                 , (.~)
                                                 , (?~)
-                                                , (^?)
                                                 , (^.)
                                                 )
 import           Lens.Micro.TH                  ( makeLenses )
@@ -114,16 +110,23 @@ data Play = Play
   { _comments :: SB.SeekBuffer (Scientific, H.Html)
   , _done :: Bool
   , _current :: Scientific
-  , _delay :: Scientific
   , _latest :: Scientific
   }
 
 makeLenses ''Play
 
 instance Default Play where
-  def = Play SB.empty False 0 0 0
+  def = Play SB.empty False 0 0
 
-type State = Maybe Play
+data State = State
+  { _play :: Maybe Play
+  , _delay :: Scientific
+  }
+
+makeLenses ''State
+
+instance Default State where
+  def = State Nothing 0
 
 data Config = Config
   { ipcPath :: FilePath
@@ -184,12 +187,12 @@ format emotes = comment where
     ! A.title (H.toValue $ txt <> " [" <> ori <> "]")
 
 render :: State -> H.Markup
-render = \case
+render st = case st ^. play of
   Nothing -> H.pre "idle"
-  Just (Play cms don cur del lat) -> do
+  Just (Play cms don cur lat) -> do
     H.pre $ do
       H.toMarkup (round cur :: Int)
-      H.string $ printf " [%+d]" (round del :: Int)
+      H.string $ printf " [%+d]" (round $ st ^. delay :: Int)
       " / "
       H.toMarkup (round lat :: Int)
       unless don " ..."
@@ -197,14 +200,15 @@ render = \case
       then H.pre "buffering..."
       else H.ul ! A.class_ "chat" $ foldMap snd $ take 500 $ SB.past cms
 
-reseek :: Play -> Play
-reseek p = comments %~ SB.seek adv $ p where
-  adv (t', _) = t' < t
-  t = p ^. current - p ^. delay
+reseek :: State -> State
+reseek st = play . _Just %~ upd $ st where
+  upd p = comments %~ SB.seek adv $ p where
+    adv (t', _) = t' < t
+    t = p ^. current - st ^. delay
 
 run :: Config -> IO ()
 run conf = evalContT $ do
-  state <- newTVarIO Nothing
+  state <- newTVarIO def
   active <- newTVarIO False
   seek <- newTVarIO False
   redraw <- newBroadcastTChanIO
@@ -218,8 +222,8 @@ run conf = evalContT $ do
       events = pure $ responseEvents $ do
         red <- atomically $ dupTChan redraw
         forever $ do
-          s <- readTVarIO state
-          yield def { eventData = renderHtml $ render s }
+          st <- readTVarIO state
+          yield def { eventData = renderHtml $ render st }
           atomically $ readTChan red
       static = application $ appStatic (runApp . err) "public"
       app = asks pathInfo >>= \case
@@ -230,22 +234,23 @@ run conf = evalContT $ do
   mpv <- newMpvClient
   taskLoad <- ContT withEmptyTask
   let update f = do
-        modifyTVar' state f
+        modifyTVar' state $ reseek . f
         writeTChan redraw ()
       load vid = startTask taskLoad $ do
-        atomically $ update $ id ?~ def
+        atomically $ do
+          update $ play ?~ def
+          writeTVar seek True
         video <- Tv.getVideo (auth conf) vid
         emotes <- loadEmotes $ Tv.channel video
         let fmt = Tv.content_offset_seconds &&& format emotes
-            cat cs = atomically $ update $ _Just %~
-              (latest %~ flip fromMaybe (cs' ^? _last . _1)) .
-              reseek .
-              (comments %~ SB.append cs')
-              where cs' = map fmt cs
+            upd cs =
+              (latest .~ fst (NE.last cs)) .
+              (comments %~ SB.append (NE.toList cs))
+            cat cs = atomically $ update $ play . _Just %~ upd (fmt <$> cs)
         runConduit $ Tv.sourceComments (auth conf) vid .| C.mapM_ cat
-        atomically $ update $ _Just . done .~ True
+        atomically $ update $ play . _Just . done .~ True
       unload = startTask taskLoad $
-        atomically $ update $ id .~ Nothing
+        atomically $ update $ play .~ Nothing
       setup = do
         observeProperty mpv "filename/no-ext" $ \case
           Nothing -> unload
@@ -255,12 +260,12 @@ run conf = evalContT $ do
             Right vid -> load vid
         observeProperty mpv "pause" $ atomically . writeTVar active . not
         observeProperty mpv "sub-delay" $ \d ->
-          atomically $ update $ _Just %~ reseek . (delay .~ d)
+          atomically $ update $ delay .~ d
         observeEvent mpv "seek" $ atomically $ writeTVar seek True
   contT_ $ withTask_ $ forever $ do
     timeout <- registerDelay 1_000_000
     atomically $ do
-      guard . isJust =<< readTVar state
+      guard . isJust . (^. play) =<< readTVar state
       readTVar seek >>= \case
         True -> writeTVar seek False
         False -> do
@@ -268,6 +273,6 @@ run conf = evalContT $ do
           guard =<< readTVar timeout
     let unavail (MpvIpcError "property unavailable") = Just ()
         unavail _ = Nothing
-        upd t = atomically $ update $ _Just %~ reseek . (current .~ t)
+        upd t = atomically $ update $ play . _Just . current .~ t
     either pure upd =<< tryJust unavail (getProperty mpv "playback-time")
   lift $ runMpv mpv (ipcPath conf) `concurrently_` setup
