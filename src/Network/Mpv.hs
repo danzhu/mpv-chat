@@ -1,5 +1,3 @@
-{-# LANGUAGE NumericUnderscores #-}
-
 module Network.Mpv
   ( Mpv
   , MpvError(..)

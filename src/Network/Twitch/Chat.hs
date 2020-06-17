@@ -35,6 +35,7 @@ import           Control.Arrow                  ( (&&&) )
 import           Control.Monad                  ( forever
                                                 , guard
                                                 , unless
+                                                , (<=<)
                                                 )
 import           Control.Monad.IO.Class         ( MonadIO
                                                 , liftIO
@@ -148,7 +149,7 @@ bttvChannel = chan <> shared where
   shared = bttv "channel shared" . Bt.sharedEmotes
 
 ffz :: Fz.Channel -> Emotes
-ffz = HM.fromList . map emote . (Fz.emoticons =<<) . HM.elems . Fz.sets where
+ffz = HM.fromList . map emote . (Fz.emoticons <=< HM.elems . Fz.sets) where
   emote e = (Fz.name e, ("ffz channel", Fz.urls e HM.! 2))
 
 loadEmotes :: MonadIO m => Tv.Channel -> m Emotes
