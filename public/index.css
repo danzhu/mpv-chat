@@ -28,7 +28,9 @@ a {
     margin: .5em 0;
     width: 1em;
     border-radius: .2em;
+    color: inherit;
     background-color: #a970ff;
+    text-decoration: inherit;
 }
 
 .detailed .details {
@@ -46,6 +48,10 @@ a {
     display: block;
 }
 
+.bio {
+    font-style: italic;
+}
+
 .shortlist {
     padding-left: 2ch;
 }
@@ -58,10 +64,5 @@ a {
 }
 
 .mention {
-    color: #a970ff;
-}
-
-.ref {
-    color: unset;
-    text-decoration: unset;
+    font-weight: bolder;
 }

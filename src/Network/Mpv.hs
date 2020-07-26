@@ -92,7 +92,7 @@ type Error = T.Text
 
 data Request
   = ReqCommand IM.Id Value
-  deriving (Show)
+  deriving stock Show
 
 instance ToJSON Request where
   toJSON (ReqCommand rid cmd) = object ["request_id" .= rid, "command" .= cmd]
@@ -100,7 +100,7 @@ instance ToJSON Request where
 data Event
   = EvtPropChange IM.Id Prop Value
   | EvtOther T.Text
-  deriving (Show)
+  deriving stock Show
 
 -- 'Maybe' needed as 'data' field may not exist
 type Data = Maybe Value
@@ -110,7 +110,7 @@ type Reply = Either Error Data
 data Response
   = ResEvent Event
   | ResReply IM.Id Reply
-  deriving (Show)
+  deriving stock Show
 
 instance FromJSON Response where
   parseJSON = withObject "Response" $ \o -> do
@@ -130,9 +130,8 @@ data MpvError
   | MpvTypeError String
   | MpvJsonError B.ByteString String
   | MpvNoReqId
-  deriving (Show)
-
-instance Exception MpvError
+  deriving stock Show
+  deriving anyclass Exception
 
 data Mpv = Mpv
   { requests :: TBQueue ([Value], TMVar Reply)

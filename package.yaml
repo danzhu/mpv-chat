@@ -1,9 +1,12 @@
 name: mpv-chat
 
 default-extensions:
+- DeriveAnyClass
 - DeriveGeneric
+- DerivingStrategies
 - DisambiguateRecordFields
 - LambdaCase
+- MultiWayIf
 - OverloadedStrings
 - ScopedTypeVariables
 - TupleSections
@@ -15,7 +18,6 @@ ghc-options:
 - -Wno-all-missed-specialisations
 - -Wno-implicit-prelude
 - -Wno-missed-specialisations
-- -Wno-missing-deriving-strategies
 - -Wno-missing-exported-signatures
 - -Wno-missing-import-lists
 - -Wno-missing-local-signatures
@@ -33,22 +35,24 @@ library:
   - bytestring
   - containers
   - filepath
+  - mtl
   - stm
   - text
   - transformers
   # === full ===
   - async
   - exceptions
+  - hashable
   - network-uri
   - unordered-containers
   # === extra ===
   - aeson
-  - blaze-html
   - conduit
   - conduit-extra
   - data-default-class
   - http-conduit
   - http-types
+  - lucid
   - megaparsec
   - microlens
   - microlens-th

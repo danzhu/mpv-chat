@@ -11,7 +11,7 @@ data SeekBuffer a = SeekBuffer
   { past :: [a]
   , future :: [a]
   }
-  deriving (Show)
+  deriving stock Show
 
 empty :: SeekBuffer a
 empty = SeekBuffer [] []

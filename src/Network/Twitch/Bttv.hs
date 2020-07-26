@@ -23,17 +23,18 @@ import           Prelude                 hiding ( id )
 data Emote = Emote
   { id :: T.Text
   , code :: T.Text
-  } deriving (Generic, Show)
+  }
+  deriving stock (Generic, Show)
+  deriving anyclass FromJSON
 
 type Global = [Emote]
 
 data Channel = Channel
   { channelEmotes :: [Emote]
   , sharedEmotes :: [Emote]
-  } deriving (Generic, Show)
-
-instance FromJSON Emote
-instance FromJSON Channel
+  }
+  deriving stock (Generic, Show)
+  deriving anyclass FromJSON
 
 rootUrl :: T.Text
 rootUrl = "https://api.betterttv.net/3"

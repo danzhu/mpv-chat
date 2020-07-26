@@ -50,7 +50,7 @@ import           Network.Wai                    ( Request
 newtype Event = Event
   { eventData :: LB.ByteString
   }
-  deriving Show
+  deriving stock Show
 
 instance Default Event where
   def = Event ""

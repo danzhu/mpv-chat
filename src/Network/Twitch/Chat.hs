@@ -31,20 +31,25 @@ import           Network.Wai.Monad              ( application
                                                 , runApp
                                                 )
 
-import           Control.Arrow                  ( (&&&) )
 import           Control.Monad                  ( forever
                                                 , guard
-                                                , unless
                                                 , (<=<)
                                                 )
 import           Control.Monad.IO.Class         ( MonadIO
                                                 , liftIO
                                                 )
+import           Control.Monad.RWS              ( RWS
+                                                , evalRWS
+                                                , ask
+                                                , asks
+                                                , tell
+                                                )
+import           Control.Monad.Trans            ( lift )
 import           Control.Monad.Trans.Cont       ( ContT(ContT)
                                                 , evalContT
                                                 )
-import           Control.Monad.Trans.Class      ( lift )
-import           Control.Monad.Trans.Reader     ( asks )
+import           Data.Bool                      ( bool )
+import qualified Data.ByteString.Lazy          as LB
 import           Data.Conduit                   ( runConduit
                                                 , yield
                                                 , (.|)
@@ -54,9 +59,11 @@ import           Data.Default.Class             ( Default
                                                 , def
                                                 )
 import           Data.Foldable                  ( fold
+                                                , for_
                                                 , traverse_
                                                 )
 import           Data.Function                  ( (&) )
+import           Data.Functor.Identity          ( runIdentity )
 import qualified Data.HashMap.Strict           as HM
 import qualified Data.List                     as L
 import qualified Data.List.NonEmpty            as NE
@@ -70,10 +77,35 @@ import           Lens.Micro                     ( _Just
                                                 , (^.)
                                                 )
 import           Lens.Micro.TH                  ( makeLenses )
+import           Lucid.Base                     ( Html
+                                                , HtmlT
+                                                , execHtmlT
+                                                , renderBS
+                                                , renderBST
+                                                , toHtml
+                                                , toHtmlRaw
+                                                )
+import           Lucid.Html5                    ( a_
+                                                , class_
+                                                , div_
+                                                , href_
+                                                , img_
+                                                , li_
+                                                , pre_
+                                                , span_
+                                                , src_
+                                                , style_
+                                                , title_
+                                                , ul_
+                                                )
+import           Network.HTTP.Types.Header      ( hContentType )
+import           Network.HTTP.Types.Status      ( ok200 )
 import           Network.URI                    ( parseURI
                                                 , uriAuthority
                                                 )
-import           Network.Wai                    ( pathInfo )
+import           Network.Wai                    ( pathInfo
+                                                , responseBuilder
+                                                )
 import           Network.Wai.Handler.Warp       ( Port
                                                 , defaultSettings
                                                 , runSettings
@@ -81,10 +113,6 @@ import           Network.Wai.Handler.Warp       ( Port
                                                 , setHost
                                                 , setPort
                                                 )
-import           Text.Blaze.Html.Renderer.Utf8  ( renderHtml )
-import           Text.Blaze.Html5               ( (!) )
-import qualified Text.Blaze.Html5              as H
-import qualified Text.Blaze.Html5.Attributes   as A
 import           Text.Printf                    ( printf )
 import           UnliftIO.Async                 ( concurrently_
                                                 , mapConcurrently
@@ -106,9 +134,18 @@ import           UnliftIO.STM                   ( atomically
 type Scope = T.Text
 type Emote = (Scope, T.Text)
 type Emotes = HM.HashMap T.Text Emote
+type Mentions = [T.Text]
+type Fmt = HtmlT (RWS Emotes Mentions ())
+
+data Comment = Comment
+  { time :: Scientific
+  , html :: LB.ByteString
+  , user :: T.Text
+  , mentions :: Mentions
+  }
 
 data Play = Play
-  { _comments :: SB.SeekBuffer (Scientific, H.Html)
+  { _comments :: SB.SeekBuffer Comment
   , _done :: Bool
   , _current :: Scientific
   , _latest :: Scientific
@@ -134,7 +171,7 @@ data Config = Config
   , auth :: Tv.Auth
   , port :: Port
   }
-  deriving (Show)
+  deriving stock Show
 
 bttv :: Scope -> [Bt.Emote] -> Emotes
 bttv s = HM.fromList . map emote where
@@ -159,52 +196,79 @@ loadEmotes chan = liftIO $ fold <$> mapConcurrently id
   , ffz <$> Fz.getChannel chan
   ]
 
-format :: Emotes -> Tv.Comment -> H.Markup
-format emotes = comment where
-  comment com = H.li ! A.class_ "comment" $ do
-    let msg = Tv.message com
-        s = maybe "" ("background-color: " <>) $ Tv.user_color msg
-    H.div ! A.class_ "icon detailed" ! A.style (H.toValue s) $
-      H.div ! A.class_ "details" $ do
-        let user = Tv.commenter com
-        H.span $ H.toMarkup $ Tv.display_name user
-        -- FIXME: completely breaks blaze
-        -- maybe "" (H.div . H.preEscapedToMarkup) $ Tv.bio user
-    H.div ! A.class_ "message" $
-      traverse_ fragment $ Tv.fragments msg
-  fragment Tv.Fragment { text = txt, emoticon = emo }
-    | Just e <- emo = emote "twitch" txt $ Tv.emoteUrl $ Tv.emoticon_id e
-    | otherwise = fold $ L.intersperse " " $ map word $ T.split (== ' ') txt
-  word wor
-    | Just (ori, url) <- HM.lookup wor emotes = emote ori wor url
-    | Just ('@', nam) <- T.uncons wor =
-        -- TODO: link/show mention
-        H.span ! A.class_ "mention" $ "@" <> H.toMarkup nam
-    | Just (uriAuthority -> Just _) <- parseURI $ T.unpack wor =
-        H.a ! A.href (H.toValue wor) $ H.toMarkup wor
-    | otherwise = H.toMarkup wor
-  emote ori txt url = H.img ! A.class_ "emote"
-    ! A.src (H.toValue $ "https:" <> url)
-    ! A.title (H.toValue $ txt <> " [" <> ori <> "]")
+fmtComment :: Tv.Comment -> Fmt ()
+fmtComment Tv.Comment { message = msg, commenter = usr } =
+  li_ [class_ "comment"] $ do
+    a_
+      [ class_ "icon detailed"
+      , style_ $ maybe "" ("background-color: " <>) $ Tv.user_color msg
+      , href_ $ "user/" <> Tv.name usr
+      ] $ fmtUser usr
+    div_ [class_ "message"] $
+      traverse_ fmtFragment $ Tv.fragments msg
 
-render :: State -> H.Markup
-render st = case st ^. play of
-  Nothing -> H.pre "idle"
+fmtUser :: Tv.Commenter -> Fmt ()
+fmtUser usr = div_ [class_ "details"] $ do
+  span_ [class_ "name"] $ toHtml $ Tv.display_name usr
+  for_ (Tv.bio usr) $ \b -> div_ $ do
+    "Bio: "
+    -- FIXME: find out why there are bad chars in twitch response,
+    -- which kill the output if not escaped to ascii
+    span_ [class_ "bio"] $ toHtml $ show b
+
+fmtFragment :: Tv.Fragment -> Fmt ()
+fmtFragment Tv.Fragment { text = txt, emoticon = emo }
+  | Just e <- emo = fmtEmote "twitch" txt $ Tv.emoteUrl $ Tv.emoticon_id e
+  | otherwise = fold $ L.intersperse " " $ map fmtWord $ T.split (== ' ') txt
+
+fmtWord :: T.Text -> Fmt ()
+fmtWord wor = ask >>= \emotes -> if
+  | Just (ori, url) <- HM.lookup wor emotes -> fmtEmote ori wor url
+  | Just ('@', nam) <- T.uncons wor -> do
+      tell [nam]
+      span_ [class_ "mention"] $ "@" <> toHtml nam
+  | Just (uriAuthority -> Just _) <- parseURI $ T.unpack wor ->
+      a_ [href_ wor] $ toHtml wor
+  | otherwise -> toHtml wor
+
+fmtEmote :: T.Text -> T.Text -> T.Text -> Fmt ()
+fmtEmote ori txt url = img_
+  [ class_ "emote"
+  , src_ $ "https:" <> url
+  , title_ $ txt <> " [" <> ori <> "]"
+  ]
+
+format :: Emotes -> Tv.Comment -> Comment
+format e c = Comment
+  { html = h
+  , time = Tv.content_offset_seconds c
+  , user = Tv.name $ Tv.commenter c
+  , mentions = m
+  }
+  where (h, m) = evalRWS (renderBST $ fmtComment c) e ()
+
+render :: State -> ([Comment] -> [Comment]) -> Html ()
+render st f = case st ^. play of
+  Nothing -> pre_ "idle"
   Just (Play cms don cur lat) -> do
-    H.pre $ do
-      H.toMarkup (round cur :: Int)
-      H.string $ printf " [%+d]" (round $ st ^. delay :: Int)
-      " / "
-      H.toMarkup (round lat :: Int)
-      unless don " ..."
+    let int = round :: Scientific -> Int
+    pre_ $ toHtml $ fold
+      [ show $ int cur
+      , printf " [%+d]" $ int $ st ^. delay
+      , " / "
+      , show $ int lat
+      , bool " ..." "" don
+      ]
     if not don && null (SB.future cms)
-      then H.pre "buffering..."
-      else H.ul ! A.class_ "chat" $ foldMap snd $ take 500 $ SB.past cms
+      then pre_ "buffering..."
+      else ul_ [class_ "chat"] $ do
+        let recent = f $ SB.past cms
+        toHtmlRaw $ foldMap html recent
 
 reseek :: State -> State
 reseek st = play . _Just %~ upd $ st where
   upd p = comments %~ SB.seek adv $ p where
-    adv (t', _) = t' < t
+    adv c = time c < t
     t = p ^. current - st ^. delay
 
 run :: Config -> IO ()
@@ -220,15 +284,24 @@ run conf = evalContT $ do
         & setPort (port conf)
         & setBeforeMainLoop entry
       err stat = pure $ responsePlainStatus stat []
-      events = pure $ responseEvents $ do
+      eventsPage = pure $ responseEvents $ do
         red <- atomically $ dupTChan redraw
         forever $ do
           st <- readTVarIO state
-          yield def { eventData = renderHtml $ render st }
+          yield def { eventData = renderBS $ render st $ take 500 }
           atomically $ readTChan red
+      userPage usr = do
+        st <- readTVarIO state
+        let hs = [(hContentType, "text/html; charset=utf-8")]
+            b = runIdentity $ execHtmlT $ do
+              toHtml usr
+              let p c = user c == usr
+              render st $ take 50 . filter p
+        pure $ responseBuilder ok200 hs b
       static = application $ appStatic (runApp . err) "public"
       app = asks pathInfo >>= \case
-        ["events"] -> events
+        ["events"] -> eventsPage
+        ["user", usr] -> userPage usr
         _ -> static
   contT_ $ withTask_ $ runSettings settings $ runApp app
 
@@ -237,18 +310,19 @@ run conf = evalContT $ do
   let update f = do
         modifyTVar' state $ reseek . f
         writeTChan redraw ()
+      append cs = atomically $ update $ play . _Just %~
+        (latest .~ time (NE.last cs)) .
+        (comments %~ SB.append (NE.toList cs))
       load vid = startTask taskLoad $ do
         atomically $ do
           update $ play ?~ def
           writeTVar seek True
         video <- Tv.getVideo (auth conf) vid
         emotes <- loadEmotes $ Tv.channel video
-        let fmt = Tv.content_offset_seconds &&& format emotes
-            upd cs =
-              (latest .~ fst (NE.last cs)) .
-              (comments %~ SB.append (NE.toList cs))
-            cat cs = atomically $ update $ play . _Just %~ upd (fmt <$> cs)
-        runConduit $ Tv.sourceComments (auth conf) vid .| C.mapM_ cat
+        runConduit $
+          Tv.sourceComments (auth conf) vid
+          .| C.mapE (format emotes)
+          .| C.mapM_ append
         atomically $ update $ play . _Just . done .~ True
       unload = startTask taskLoad $
         atomically $ update $ play .~ Nothing

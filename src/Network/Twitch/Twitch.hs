@@ -3,7 +3,6 @@ module Network.Twitch.Twitch
   , Channel(..)
   , Comment(..)
   , Commenter(..)
-  , Comments(..)
   , Emoticon(..)
   , Fragment(..)
   , Message(..)
@@ -26,6 +25,7 @@ import           Data.Conduit                   ( ConduitT
                                                 , yield
                                                 )
 import           Data.Foldable                  ( traverse_ )
+import           Data.Hashable                  ( Hashable )
 import qualified Data.List.NonEmpty            as NE
 import           Data.Scientific                ( Scientific )
 import qualified Data.Text                     as T
@@ -44,56 +44,64 @@ newtype VideoId = VideoId T.Text
 
 newtype Auth = Auth
   { clientId :: B.ByteString
-  } deriving (Show)
+  }
+  deriving stock Show
 
 newtype Channel = Channel
   { _id :: Int
-  } deriving (Generic, Show)
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (FromJSON, Hashable)
 
 newtype Video = Video
   { channel :: Channel
-  } deriving (Generic, Show)
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (FromJSON, Hashable)
 
 newtype Emoticon = Emoticon
   { emoticon_id :: T.Text
-  } deriving (Generic, Show)
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (FromJSON, Hashable)
 
 data Fragment = Fragment
   { text     :: T.Text
   , emoticon :: Maybe Emoticon
-  } deriving (Generic, Show)
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (FromJSON, Hashable)
 
 data Message = Message
   { body       :: T.Text
   , fragments  :: NE.NonEmpty Fragment
   , user_color :: Maybe T.Text
-  } deriving (Generic, Show)
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (FromJSON, Hashable)
 
 data Commenter = Commenter
   { name         :: T.Text
   , display_name :: T.Text
   , bio          :: Maybe T.Text
-  } deriving (Generic, Show)
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (FromJSON, Hashable)
 
 data Comment = Comment
   { message                :: Message
   , commenter              :: Commenter
   , content_offset_seconds :: Scientific
-  } deriving (Generic, Show)
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (FromJSON, Hashable)
 
 data Comments = Comments
   { comments :: NE.NonEmpty Comment
   , _next    :: Maybe T.Text
-  } deriving (Generic, Show)
-
-instance FromJSON Channel
-instance FromJSON Video
-instance FromJSON Emoticon
-instance FromJSON Fragment
-instance FromJSON Message
-instance FromJSON Commenter
-instance FromJSON Comment
-instance FromJSON Comments
+  }
+  deriving stock (Generic, Show)
+  deriving anyclass FromJSON
 
 rootUrl :: T.Text
 rootUrl = "https://api.twitch.tv/v5"

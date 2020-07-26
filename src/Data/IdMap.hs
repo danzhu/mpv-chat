@@ -13,7 +13,7 @@ import           Prelude                 hiding ( lookup )
 type Id = Int
 
 data IdMap a = IdMap Id (IM.IntMap a)
-  deriving (Show)
+  deriving stock Show
 
 empty :: Id -> IdMap a
 empty i = IdMap i IM.empty

@@ -18,19 +18,21 @@ import           GHC.Generics                   ( Generic )
 data Emote = Emote
   { name :: T.Text
   , urls :: HM.HashMap Int T.Text
-  } deriving (Generic, Show)
+  }
+  deriving stock (Generic, Show)
+  deriving anyclass FromJSON
 
 newtype Set = Set
   { emoticons :: [Emote]
-  } deriving (Generic, Show)
+  }
+  deriving stock (Generic, Show)
+  deriving anyclass FromJSON
 
 newtype Channel = Channel
   { sets :: HM.HashMap T.Text Set
-  } deriving (Generic, Show)
-
-instance FromJSON Channel
-instance FromJSON Set
-instance FromJSON Emote
+  }
+  deriving stock (Generic, Show)
+  deriving anyclass FromJSON
 
 rootUrl :: T.Text
 rootUrl = "https://api.frankerfacez.com/v1"
