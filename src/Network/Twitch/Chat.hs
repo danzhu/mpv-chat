@@ -86,16 +86,30 @@ import           Lucid.Base                     ( Html
                                                 , toHtmlRaw
                                                 )
 import           Lucid.Html5                    ( a_
+                                                , body_
+                                                , charset_
                                                 , class_
+                                                , content_
                                                 , div_
+                                                , doctype_
+                                                , head_
                                                 , href_
+                                                , html_
+                                                , id_
                                                 , img_
+                                                , lang_
                                                 , li_
+                                                , link_
+                                                , meta_
+                                                , name_
                                                 , pre_
+                                                , rel_
+                                                , script_
                                                 , span_
                                                 , src_
                                                 , style_
                                                 , title_
+                                                , type_
                                                 , ul_
                                                 )
 import           Network.HTTP.Types.Header      ( hContentType )
@@ -103,7 +117,8 @@ import           Network.HTTP.Types.Status      ( ok200 )
 import           Network.URI                    ( parseURI
                                                 , uriAuthority
                                                 )
-import           Network.Wai                    ( pathInfo
+import           Network.Wai                    ( Response
+                                                , pathInfo
                                                 , responseBuilder
                                                 )
 import           Network.Wai.Handler.Warp       ( Port
@@ -141,6 +156,7 @@ data Comment = Comment
   { time :: Scientific
   , html :: LB.ByteString
   , user :: T.Text
+  , display_user :: T.Text
   , mentions :: Mentions
   }
 
@@ -200,9 +216,9 @@ fmtComment :: Tv.Comment -> Fmt ()
 fmtComment Tv.Comment { message = msg, commenter = usr } =
   li_ [class_ "comment"] $ do
     a_
-      [ class_ "icon detailed"
+      [ class_ "icon"
       , style_ $ maybe "" ("background-color: " <>) $ Tv.user_color msg
-      , href_ $ "user/" <> Tv.name usr
+      , href_ $ "/user/" <> Tv.name usr
       ] $ fmtUser usr
     div_ [class_ "message"] $
       traverse_ fmtFragment $ Tv.fragments msg
@@ -226,9 +242,9 @@ fmtWord wor = ask >>= \emotes -> if
   | Just (ori, url) <- HM.lookup wor emotes -> fmtEmote ori wor url
   | Just ('@', nam) <- T.uncons wor -> do
       tell [nam]
-      span_ [class_ "mention"] $ "@" <> toHtml nam
+      a_ [class_ "mention", href_ $ "/user/" <> nam] $ "@" <> toHtml nam
   | Just (uriAuthority -> Just _) <- parseURI $ T.unpack wor ->
-      a_ [href_ wor] $ toHtml wor
+      a_ [class_ "url", href_ wor] $ toHtml wor
   | otherwise -> toHtml wor
 
 fmtEmote :: T.Text -> T.Text -> T.Text -> Fmt ()
@@ -242,10 +258,28 @@ format :: Emotes -> Tv.Comment -> Comment
 format e c = Comment
   { html = h
   , time = Tv.content_offset_seconds c
-  , user = Tv.name $ Tv.commenter c
+  , user = Tv.name u
+  , display_user = Tv.display_name u
   , mentions = m
   }
-  where (h, m) = evalRWS (renderBST $ fmtComment c) e ()
+  where
+    u = Tv.commenter c
+    (h, m) = evalRWS (renderBST $ fmtComment c) e ()
+
+template :: Html () -> Html ()
+template h = do
+  doctype_
+  html_ [lang_ "en"] $ do
+    head_ $ do
+      meta_ [charset_ "utf-8"]
+      meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1"]
+      title_ "Chat"
+      link_ [rel_ "stylesheet", href_ "/index.css", type_ "text/css"]
+    body_ h
+
+responseHtml :: Html () -> Response
+responseHtml = responseBuilder ok200 hs . runIdentity . execHtmlT . template where
+  hs = [(hContentType, "text/html; charset=utf-8")]
 
 render :: State -> ([Comment] -> [Comment]) -> Html ()
 render st f = case st ^. play of
@@ -284,6 +318,9 @@ run conf = evalContT $ do
         & setPort (port conf)
         & setBeforeMainLoop entry
       err stat = pure $ responsePlainStatus stat []
+      indexPage = pure $ responseHtml $ do
+        div_ [id_ "content"] ""
+        script_ [src_ "index.js"] ("" :: Html ())
       eventsPage = pure $ responseEvents $ do
         red <- atomically $ dupTChan redraw
         forever $ do
@@ -292,14 +329,13 @@ run conf = evalContT $ do
           atomically $ readTChan red
       userPage usr = do
         st <- readTVarIO state
-        let hs = [(hContentType, "text/html; charset=utf-8")]
-            b = runIdentity $ execHtmlT $ do
-              toHtml usr
-              let p c = user c == usr
-              render st $ take 50 . filter p
-        pure $ responseBuilder ok200 hs b
+        pure $ responseHtml $ do
+          toHtml usr
+          let p c = user c == usr || display_user c == usr
+          render st $ take 50 . filter p
       static = application $ appStatic (runApp . err) "public"
       app = asks pathInfo >>= \case
+        [] -> indexPage
         ["events"] -> eventsPage
         ["user", usr] -> userPage usr
         _ -> static

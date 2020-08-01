@@ -1,15 +1,19 @@
 module Network.Twitch.Twitch
   ( Auth(..)
   , Channel(..)
+  , Clip(..)
   , Comment(..)
   , Commenter(..)
   , Emoticon(..)
   , Fragment(..)
   , Message(..)
+  , Slug
   , Video(..)
   , VideoId
   , emoteUrl
+  , getClip
   , getVideo
+  , parseSlug
   , parseVideoId
   , sourceComments
   ) where
@@ -40,7 +44,16 @@ import           Text.Megaparsec                ( Parsec
                                                 )
 import           Text.Megaparsec.Error          ( errorBundlePretty )
 
+type Parser = Parsec Void T.Text
+
 newtype VideoId = VideoId T.Text
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (FromJSON, Hashable)
+
+-- | Clip id
+newtype Slug = Slug T.Text
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (FromJSON, Hashable)
 
 newtype Auth = Auth
   { clientId :: B.ByteString
@@ -73,8 +86,7 @@ data Fragment = Fragment
   deriving anyclass (FromJSON, Hashable)
 
 data Message = Message
-  { body       :: T.Text
-  , fragments  :: NE.NonEmpty Fragment
+  { fragments  :: NE.NonEmpty Fragment
   , user_color :: Maybe T.Text
   }
   deriving stock (Eq, Generic, Show)
@@ -103,6 +115,21 @@ data Comments = Comments
   deriving stock (Generic, Show)
   deriving anyclass FromJSON
 
+data Thumbnails = Thumbnails
+  { medium :: T.Text
+  , small :: T.Text
+  , tiny :: T.Text
+  }
+  deriving stock (Generic, Show)
+  deriving anyclass (FromJSON, Hashable)
+
+data Clip = Clip
+  { title :: T.Text
+  , thumbnails :: Thumbnails
+  }
+  deriving stock (Generic, Show)
+  deriving anyclass (FromJSON, Hashable)
+
 rootUrl :: T.Text
 rootUrl = "https://api.twitch.tv/v5"
 
@@ -115,16 +142,25 @@ commentsUrl vid = videoUrl vid <> "/comments"
 emoteUrl :: T.Text -> T.Text
 emoteUrl i = "//static-cdn.jtvnw.net/emoticons/v1/" <> i <> "/2.0"
 
+clipUrl :: Slug -> T.Text
+clipUrl (Slug s) = rootUrl <> "/clips/" <> s
+
 query :: (MonadIO m, FromJSON a) => Auth -> T.Text -> Query -> m a
 query auth url q = request url q [("Client-ID", clientId auth)]
 
 parseVideoId :: T.Text -> Either String VideoId
 parseVideoId = first errorBundlePretty . runParser (p <* eof) "" where
-  p :: Parsec Void T.Text VideoId
+  p :: Parser VideoId
   p = VideoId <$> takeWhile1P (Just "video id") isDigit
+
+parseSlug :: T.Text -> Either String Slug
+parseSlug = pure . Slug
 
 getVideo :: MonadIO m => Auth -> VideoId -> m Video
 getVideo auth vid = query auth (videoUrl vid) []
+
+getClip :: MonadIO m => Auth -> Slug -> m Clip
+getClip auth slug = query auth (clipUrl slug) []
 
 sourceComments :: MonadIO m => Auth -> VideoId -> ConduitT i (NE.NonEmpty Comment) m ()
 sourceComments auth vid = fetch "" where

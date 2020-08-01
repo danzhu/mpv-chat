@@ -4,10 +4,6 @@ body {
     font-family: sans-serif;
 }
 
-a {
-    color: #55bbff;
-}
-
 .chat {
     padding: 0;
     list-style: none;
@@ -16,11 +12,6 @@ a {
 .comment {
     display: flex;
     padding: .2em 0;
-}
-
-.emote {
-    height: 2em;
-    vertical-align: top;
 }
 
 .icon {
@@ -33,7 +24,7 @@ a {
     text-decoration: inherit;
 }
 
-.detailed .details {
+.details {
     display: none;
     position: absolute;
     margin-left: 1em;
@@ -44,16 +35,12 @@ a {
     word-wrap: break-word;
 }
 
-.detailed:hover > .details {
+*:hover > .details {
     display: block;
 }
 
 .bio {
     font-style: italic;
-}
-
-.shortlist {
-    padding-left: 2ch;
 }
 
 .message {
@@ -63,6 +50,17 @@ a {
     word-wrap: break-word;
 }
 
+.emote {
+    height: 2em;
+    vertical-align: top;
+}
+
 .mention {
+    color: inherit;
+    text-decoration: inherit;
     font-weight: bolder;
+}
+
+.url {
+    color: #55bbff;
 }
