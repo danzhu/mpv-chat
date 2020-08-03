@@ -51,6 +51,7 @@ library:
   - conduit-extra
   - data-default-class
   - http-conduit
+  - http-media
   - http-types
   - lucid
   - megaparsec

@@ -27,6 +27,10 @@ import           Network.Wai.IO                 ( eventData
                                                 , responseEvents
                                                 , responsePlainStatus
                                                 )
+import           Network.Wai.Middleware.StaticRoute
+                                                ( routeAccept
+                                                , routeMethod
+                                                )
 import           Network.Wai.Monad              ( application
                                                 , runApp
                                                 )
@@ -63,7 +67,6 @@ import           Data.Foldable                  ( fold
                                                 , traverse_
                                                 )
 import           Data.Function                  ( (&) )
-import           Data.Functor.Identity          ( runIdentity )
 import qualified Data.HashMap.Strict           as HM
 import qualified Data.List                     as L
 import qualified Data.List.NonEmpty            as NE
@@ -79,47 +82,34 @@ import           Lens.Micro                     ( _Just
 import           Lens.Micro.TH                  ( makeLenses )
 import           Lucid.Base                     ( Html
                                                 , HtmlT
-                                                , execHtmlT
                                                 , renderBS
                                                 , renderBST
                                                 , toHtml
                                                 , toHtmlRaw
                                                 )
 import           Lucid.Html5                    ( a_
-                                                , body_
-                                                , charset_
                                                 , class_
-                                                , content_
                                                 , div_
-                                                , doctype_
-                                                , head_
                                                 , href_
-                                                , html_
-                                                , id_
                                                 , img_
-                                                , lang_
                                                 , li_
-                                                , link_
-                                                , meta_
-                                                , name_
                                                 , pre_
-                                                , rel_
-                                                , script_
                                                 , span_
                                                 , src_
                                                 , style_
                                                 , title_
-                                                , type_
                                                 , ul_
                                                 )
 import           Network.HTTP.Types.Header      ( hContentType )
 import           Network.HTTP.Types.Status      ( ok200 )
+import           Network.HTTP.Types.Method      ( methodGet
+                                                , methodHead
+                                                )
 import           Network.URI                    ( parseURI
                                                 , uriAuthority
                                                 )
-import           Network.Wai                    ( Response
-                                                , pathInfo
-                                                , responseBuilder
+import           Network.Wai                    ( pathInfo
+                                                , responseFile
                                                 )
 import           Network.Wai.Handler.Warp       ( Port
                                                 , defaultSettings
@@ -266,23 +256,8 @@ format e c = Comment
     u = Tv.commenter c
     (h, m) = evalRWS (renderBST $ fmtComment c) e ()
 
-template :: Html () -> Html ()
-template h = do
-  doctype_
-  html_ [lang_ "en"] $ do
-    head_ $ do
-      meta_ [charset_ "utf-8"]
-      meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1"]
-      title_ "Chat"
-      link_ [rel_ "stylesheet", href_ "/index.css", type_ "text/css"]
-    body_ h
-
-responseHtml :: Html () -> Response
-responseHtml = responseBuilder ok200 hs . runIdentity . execHtmlT . template where
-  hs = [(hContentType, "text/html; charset=utf-8")]
-
-render :: State -> ([Comment] -> [Comment]) -> Html ()
-render st f = case st ^. play of
+render :: ([Comment] -> [Comment]) -> State -> Html ()
+render f st = case st ^. play of
   Nothing -> pre_ "idle"
   Just (Play cms don cur lat) -> do
     let int = round :: Scientific -> Int
@@ -317,27 +292,30 @@ run conf = evalContT $ do
         & setHost "*6"
         & setPort (port conf)
         & setBeforeMainLoop entry
-      err stat = pure $ responsePlainStatus stat []
-      indexPage = pure $ responseHtml $ do
-        div_ [id_ "content"] ""
-        script_ [src_ "index.js"] ("" :: Html ())
-      eventsPage = pure $ responseEvents $ do
+      err stat _ res = res $ responsePlainStatus stat []
+      pageHtml = pure $ responseFile ok200 hs "res/page.html" Nothing where
+        hs = [(hContentType, "text/html")]
+      pageEvents f = pure $ responseEvents $ do
         red <- atomically $ dupTChan redraw
         forever $ do
           st <- readTVarIO state
-          yield def { eventData = renderBS $ render st $ take 500 }
+          yield def { eventData = renderBS $ f st }
           atomically $ readTChan red
-      userPage usr = do
-        st <- readTVarIO state
-        pure $ responseHtml $ do
-          toHtml usr
-          let p c = user c == usr || display_user c == usr
-          render st $ take 50 . filter p
-      static = application $ appStatic (runApp . err) "public"
+      page f = application p where
+        p = routeMethod err
+          [ (methodGet, get)
+          -- TODO: manually check that no body is sent
+          , (methodHead, get)
+          ]
+        get = routeAccept err
+          [ ("text/html", runApp pageHtml)
+          , ("text/event-stream", runApp $ pageEvents f)
+          ]
+      static = application $ appStatic err "public"
       app = asks pathInfo >>= \case
-        [] -> indexPage
-        ["events"] -> eventsPage
-        ["user", usr] -> userPage usr
+        [] -> page $ render $ take 500
+        ["user", usr] -> page $ render $ take 50 . filter p where
+          p c = user c == usr || display_user c == usr
         _ -> static
   contT_ $ withTask_ $ runSettings settings $ runApp app
 
