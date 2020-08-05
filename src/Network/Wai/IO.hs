@@ -68,6 +68,7 @@ requestJson req = liftIO $ runConduit $ requestSource req .| sinkParser json'
 responsePlainStatus :: Status -> ResponseHeaders -> Response
 responsePlainStatus s hs = responseBuilder s hs' b where
   hs' = (hContentType, "text/plain; charset=utf-8") : hs
+  -- TODO: also show headers
   b = intDec (statusCode s) <> " " <> byteString (statusMessage s) <> "\n"
 
 responseSource :: Status -> ResponseHeaders -> ConduitT () Builder IO () -> Response

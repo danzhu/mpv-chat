@@ -100,10 +100,14 @@ import           Lucid.Html5                    ( a_
                                                 , title_
                                                 , ul_
                                                 )
-import           Network.HTTP.Types.Header      ( hContentType )
-import           Network.HTTP.Types.Status      ( ok200 )
+import           Network.HTTP.Types.Header      ( hContentType
+                                                , hLocation
+                                                )
 import           Network.HTTP.Types.Method      ( methodGet
                                                 , methodHead
+                                                )
+import           Network.HTTP.Types.Status      ( ok200
+                                                , temporaryRedirect307
                                                 )
 import           Network.URI                    ( parseURI
                                                 , uriAuthority
@@ -118,10 +122,12 @@ import           Network.Wai.Handler.Warp       ( Port
                                                 , setHost
                                                 , setPort
                                                 )
+import           System.FilePath.Posix          ( takeDirectory )
 import           Text.Printf                    ( printf )
 import           UnliftIO.Async                 ( concurrently_
                                                 , mapConcurrently
                                                 )
+import           UnliftIO.Environment           ( getExecutablePath )
 import           UnliftIO.Exception             ( tryJust )
 import           UnliftIO.STM                   ( atomically
                                                 , dupTChan
@@ -287,6 +293,9 @@ run conf = evalContT $ do
   seek <- newTVarIO False
   redraw <- newBroadcastTChanIO
 
+  exePath <- getExecutablePath
+  let installPath = takeDirectory $ takeDirectory exePath
+
   let entry = putStrLn $ "server started on port " <> show (port conf)
       settings = defaultSettings
         & setHost "*6"
@@ -311,12 +320,14 @@ run conf = evalContT $ do
           [ ("text/html", runApp pageHtml)
           , ("text/event-stream", runApp $ pageEvents f)
           ]
-      static = application $ appStatic err "public"
       app = asks pathInfo >>= \case
         [] -> page $ render $ take 500
         ["user", usr] -> page $ render $ take 50 . filter p where
           p c = user c == usr || display_user c == usr
-        _ -> static
+        ["doc"] -> pure $ responsePlainStatus temporaryRedirect307
+          [(hLocation, "/doc/all/index.html")]
+        "doc" : _ -> application $ appStatic err installPath
+        _ -> application $ appStatic err "public"
   contT_ $ withTask_ $ runSettings settings $ runApp app
 
   mpv <- newMpvClient
