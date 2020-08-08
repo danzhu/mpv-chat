@@ -1,7 +1,7 @@
 module Network.Wai.Monad
-  ( App
-  , application
-  , runApp
+  ( Wai
+  , runWai
+  , wai
   ) where
 
 import           Network.Wai                    ( Application
@@ -16,10 +16,10 @@ import           Control.Monad.Trans.Cont       ( ContT(ContT)
                                                 , runContT
                                                 )
 
-type App = ReaderT Request (ContT ResponseReceived IO)
+type Wai = ReaderT Request (ContT ResponseReceived IO)
 
-application :: Application -> App Response
-application app = ReaderT $ ContT . app
+wai :: Application -> Wai Response
+wai app = ReaderT $ ContT . app
 
-runApp :: App Response -> Application
-runApp app = runContT . runReaderT app
+runWai :: Wai Response -> Application
+runWai app = runContT . runReaderT app

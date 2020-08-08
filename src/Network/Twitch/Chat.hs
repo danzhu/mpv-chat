@@ -31,8 +31,8 @@ import           Network.Wai.Middleware.StaticRoute
                                                 ( routeAccept
                                                 , routeMethod
                                                 )
-import           Network.Wai.Monad              ( application
-                                                , runApp
+import           Network.Wai.Monad              ( runWai
+                                                , wai
                                                 )
 
 import           Control.Monad                  ( forever
@@ -310,15 +310,15 @@ run conf = evalContT $ do
           st <- readTVarIO state
           yield def { eventData = renderBS $ f st }
           atomically $ readTChan red
-      page f = application p where
+      page f = wai p where
         p = routeMethod err
           [ (methodGet, get)
           -- TODO: manually check that no body is sent
           , (methodHead, get)
           ]
         get = routeAccept err
-          [ ("text/html", runApp pageHtml)
-          , ("text/event-stream", runApp $ pageEvents f)
+          [ ("text/html", runWai pageHtml)
+          , ("text/event-stream", runWai $ pageEvents f)
           ]
       app = asks pathInfo >>= \case
         [] -> page $ render $ take 500
@@ -326,9 +326,9 @@ run conf = evalContT $ do
           p c = user c == usr || display_user c == usr
         ["doc"] -> pure $ responsePlainStatus temporaryRedirect307
           [(hLocation, "/doc/all/index.html")]
-        "doc" : _ -> application $ appStatic err installPath
-        _ -> application $ appStatic err "public"
-  contT_ $ withTask_ $ runSettings settings $ runApp app
+        "doc" : _ -> wai $ appStatic err installPath
+        _ -> wai $ appStatic err "public"
+  contT_ $ withTask_ $ runSettings settings $ runWai app
 
   mpv <- newMpvClient
   taskLoad <- ContT withEmptyTask
