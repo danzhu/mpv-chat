@@ -5,6 +5,7 @@ default-extensions:
 - DeriveGeneric
 - DerivingStrategies
 - DisambiguateRecordFields
+- GeneralizedNewtypeDeriving
 - LambdaCase
 - MultiWayIf
 - OverloadedStrings

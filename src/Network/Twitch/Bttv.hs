@@ -42,8 +42,8 @@ rootUrl = "https://api.betterttv.net/3"
 globalUrl :: T.Text
 globalUrl = rootUrl <> "/cached/emotes/global"
 
-channelUrl :: Tv.Channel -> T.Text
-channelUrl c = rootUrl <> "/cached/users/twitch/" <> T.pack (show $ Tv._id c)
+channelUrl :: Tv.ChannelId -> T.Text
+channelUrl c = rootUrl <> "/cached/users/twitch/" <> T.pack (show c)
 
 emoteUrl :: T.Text -> T.Text
 emoteUrl i = "//cdn.betterttv.net/emote/" <> i <> "/2x"
@@ -51,5 +51,5 @@ emoteUrl i = "//cdn.betterttv.net/emote/" <> i <> "/2x"
 getGlobal :: MonadIO m => m Global
 getGlobal = request globalUrl [] []
 
-getChannel :: MonadIO m => Tv.Channel -> m Channel
+getChannel :: MonadIO m => Tv.ChannelId -> m Channel
 getChannel c = request (channelUrl c) [] []

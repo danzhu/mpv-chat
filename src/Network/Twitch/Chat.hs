@@ -62,7 +62,8 @@ import qualified Data.Conduit.Combinators      as C
 import           Data.Default.Class             ( Default
                                                 , def
                                                 )
-import           Data.Foldable                  ( fold
+import           Data.Foldable                  ( asum
+                                                , fold
                                                 , for_
                                                 , traverse_
                                                 )
@@ -70,7 +71,9 @@ import           Data.Function                  ( (&) )
 import qualified Data.HashMap.Strict           as HM
 import qualified Data.List                     as L
 import qualified Data.List.NonEmpty            as NE
-import           Data.Maybe                     ( isJust )
+import           Data.Maybe                     ( fromJust
+                                                , isJust
+                                                )
 import           Data.Scientific                ( Scientific )
 import qualified Data.Text                     as T
 import           Lens.Micro                     ( _Just
@@ -199,13 +202,15 @@ bttvChannel = chan <> shared where
 
 ffz :: Fz.Channel -> Emotes
 ffz = HM.fromList . map emote . (Fz.emoticons <=< HM.elems . Fz.sets) where
-  emote e = (Fz.name e, ("ffz channel", Fz.urls e HM.! 2))
+  emote e = (Fz.name e, ("ffz channel", url)) where
+    -- 2 (higher res image) not always available, so fallback to 1
+    url = fromJust $ asum $ map (`HM.lookup` Fz.urls e) [2, 1]
 
-loadEmotes :: MonadIO m => Tv.Channel -> m Emotes
-loadEmotes chan = liftIO $ fold <$> mapConcurrently id
+loadEmotes :: MonadIO m => Tv.ChannelId -> m Emotes
+loadEmotes cid = liftIO $ fold <$> mapConcurrently id
   [ bttvGlobal <$> Bt.getGlobal
-  , bttvChannel <$> Bt.getChannel chan
-  , ffz <$> Fz.getChannel chan
+  , bttvChannel <$> Bt.getChannel cid
+  , ffz <$> Fz.getChannel cid
   ]
 
 fmtComment :: Tv.Comment -> Fmt ()
@@ -343,7 +348,7 @@ run conf = evalContT $ do
           update $ play ?~ def
           writeTVar seek True
         video <- Tv.getVideo (auth conf) vid
-        emotes <- loadEmotes $ Tv.channel video
+        emotes <- loadEmotes $ Tv._id $ Tv.channel video
         runConduit $
           Tv.sourceComments (auth conf) vid
           .| C.mapE (format emotes)

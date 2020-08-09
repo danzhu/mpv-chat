@@ -1,6 +1,7 @@
 module Network.Twitch.Twitch
   ( Auth(..)
   , Channel(..)
+  , ChannelId
   , Clip(..)
   , Comment(..)
   , Commenter(..)
@@ -14,6 +15,7 @@ module Network.Twitch.Twitch
   , getClip
   , getVideo
   , parseSlug
+  , parseChannelId
   , parseVideoId
   , sourceComments
   ) where
@@ -42,13 +44,16 @@ import           Text.Megaparsec                ( Parsec
                                                 , takeWhile1P
                                                 , eof
                                                 )
+import           Text.Megaparsec.Char.Lexer     ( decimal )
 import           Text.Megaparsec.Error          ( errorBundlePretty )
 
 type Parser = Parsec Void T.Text
 
+newtype ChannelId = ChannelId Int
+  deriving newtype (Eq, FromJSON, Hashable, Ord, Show)
+
 newtype VideoId = VideoId T.Text
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (FromJSON, Hashable)
+  deriving newtype (Eq, FromJSON, Hashable, Ord, Show)
 
 -- | Clip id
 newtype Slug = Slug T.Text
@@ -61,7 +66,7 @@ newtype Auth = Auth
   deriving stock Show
 
 newtype Channel = Channel
-  { _id :: Int
+  { _id :: ChannelId
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (FromJSON, Hashable)
@@ -147,6 +152,11 @@ clipUrl (Slug s) = rootUrl <> "/clips/" <> s
 
 query :: (MonadIO m, FromJSON a) => Auth -> T.Text -> Query -> m a
 query auth url q = request url q [("Client-ID", clientId auth)]
+
+parseChannelId :: T.Text -> Either String ChannelId
+parseChannelId = first errorBundlePretty . runParser (p <* eof) "" where
+  p :: Parser ChannelId
+  p = ChannelId <$> decimal
 
 parseVideoId :: T.Text -> Either String VideoId
 parseVideoId = first errorBundlePretty . runParser (p <* eof) "" where

@@ -37,8 +37,8 @@ newtype Channel = Channel
 rootUrl :: T.Text
 rootUrl = "https://api.frankerfacez.com/v1"
 
-channelUrl :: Tv.Channel -> T.Text
-channelUrl c = rootUrl <> "/room/id/" <> T.pack (show $ Tv._id c)
+channelUrl :: Tv.ChannelId -> T.Text
+channelUrl c = rootUrl <> "/room/id/" <> T.pack (show c)
 
-getChannel :: MonadIO m => Tv.Channel -> m Channel
+getChannel :: MonadIO m => Tv.ChannelId -> m Channel
 getChannel c = request (channelUrl c) [] []
