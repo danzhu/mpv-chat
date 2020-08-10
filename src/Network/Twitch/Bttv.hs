@@ -9,14 +9,10 @@ module Network.Twitch.Bttv
   , globalUrl
   ) where
 
-import           Network.Request                ( request )
-import qualified Network.Twitch.Twitch         as Tv
-
-import           Control.Monad.IO.Class         ( MonadIO )
-import           Data.Aeson                     ( FromJSON )
 import qualified Data.Text                     as T
-import           GHC.Generics                   ( Generic )
-import           Prelude                 hiding ( id )
+import           MpvChat.Prelude         hiding ( id )
+import           Network.Request                ( request )
+import qualified Network.Twitch                as Tv
 
 -- HACK: v3 shared emote has different structure than global/channel,
 -- here are common fields to avoid different types

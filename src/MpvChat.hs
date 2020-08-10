@@ -1,9 +1,9 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Network.Twitch.Chat
+module MpvChat
   ( Config(..)
-  , run
+  , runMpvChat
   ) where
 
 import           Control.Concurrent.Task        ( startTask
@@ -11,78 +11,18 @@ import           Control.Concurrent.Task        ( startTask
                                                 , withTask_
                                                 )
 import           Control.Monad.ContT            ( contT_ )
-import qualified Data.SeekBuffer               as SB
-import           Network.Mpv                    ( MpvError(MpvIpcError)
-                                                , getProperty
-                                                , newMpvClient
-                                                , observeEvent
-                                                , observeProperty
-                                                , runMpv
-                                                )
-import qualified Network.Twitch.Bttv           as Bt
-import qualified Network.Twitch.Ffz            as Fz
-import qualified Network.Twitch.Twitch         as Tv
-import           Network.Wai.Application.Static ( appStatic )
-import           Network.Wai.IO                 ( eventData
-                                                , responseEvents
-                                                , responsePlainStatus
-                                                )
-import           Network.Wai.Middleware.StaticRoute
-                                                ( routeAccept
-                                                , routeMethod
-                                                )
-import           Network.Wai.Monad              ( runWai
-                                                , wai
-                                                )
-
-import           Control.Monad                  ( forever
-                                                , guard
-                                                , (<=<)
-                                                )
-import           Control.Monad.IO.Class         ( MonadIO
-                                                , liftIO
-                                                )
-import           Control.Monad.RWS              ( RWS
-                                                , evalRWS
-                                                , ask
+import           Control.Monad.RWS              ( ask
                                                 , asks
                                                 , tell
                                                 )
-import           Control.Monad.Trans            ( lift )
-import           Control.Monad.Trans.Cont       ( ContT(ContT)
-                                                , evalContT
-                                                )
-import           Data.Bool                      ( bool )
 import qualified Data.ByteString.Lazy          as LB
-import           Data.Conduit                   ( runConduit
-                                                , yield
-                                                , (.|)
-                                                )
 import qualified Data.Conduit.Combinators      as C
-import           Data.Default.Class             ( Default
-                                                , def
-                                                )
-import           Data.Foldable                  ( asum
-                                                , fold
-                                                , for_
-                                                , traverse_
-                                                )
-import           Data.Function                  ( (&) )
 import qualified Data.HashMap.Strict           as HM
 import qualified Data.List                     as L
 import qualified Data.List.NonEmpty            as NE
-import           Data.Maybe                     ( fromJust
-                                                , isJust
-                                                )
-import           Data.Scientific                ( Scientific )
+import           Data.Maybe                     ( fromJust )
+import qualified Data.SeekBuffer               as SB
 import qualified Data.Text                     as T
-import           Lens.Micro                     ( _Just
-                                                , (%~)
-                                                , (.~)
-                                                , (?~)
-                                                , (^.)
-                                                )
-import           Lens.Micro.TH                  ( makeLenses )
 import           Lucid.Base                     ( Html
                                                 , HtmlT
                                                 , renderBS
@@ -103,6 +43,7 @@ import           Lucid.Html5                    ( a_
                                                 , title_
                                                 , ul_
                                                 )
+import           MpvChat.Prelude
 import           Network.HTTP.Types.Header      ( hContentType
                                                 , hLocation
                                                 )
@@ -112,12 +53,23 @@ import           Network.HTTP.Types.Method      ( methodGet
 import           Network.HTTP.Types.Status      ( ok200
                                                 , temporaryRedirect307
                                                 )
+import           Network.Mpv                    ( MpvError(MpvIpcError)
+                                                , getProperty
+                                                , newMpvClient
+                                                , observeEvent
+                                                , observeProperty
+                                                , runMpv
+                                                )
+import qualified Network.Twitch                as Tv
+import qualified Network.Twitch.Bttv           as Bt
+import qualified Network.Twitch.Ffz            as Fz
 import           Network.URI                    ( parseURI
                                                 , uriAuthority
                                                 )
 import           Network.Wai                    ( pathInfo
                                                 , responseFile
                                                 )
+import           Network.Wai.Application.Static ( appStatic )
 import           Network.Wai.Handler.Warp       ( Port
                                                 , defaultSettings
                                                 , runSettings
@@ -125,25 +77,20 @@ import           Network.Wai.Handler.Warp       ( Port
                                                 , setHost
                                                 , setPort
                                                 )
+import           Network.Wai.IO                 ( eventData
+                                                , responseEvents
+                                                , responsePlainStatus
+                                                )
+import           Network.Wai.Middleware.StaticRoute
+                                                ( routeAccept
+                                                , routeMethod
+                                                )
+import           Network.Wai.Monad              ( runWai
+                                                , wai
+                                                )
 import           System.FilePath.Posix          ( takeDirectory )
 import           Text.Printf                    ( printf )
-import           UnliftIO.Async                 ( concurrently_
-                                                , mapConcurrently
-                                                )
 import           UnliftIO.Environment           ( getExecutablePath )
-import           UnliftIO.Exception             ( tryJust )
-import           UnliftIO.STM                   ( atomically
-                                                , dupTChan
-                                                , modifyTVar'
-                                                , newBroadcastTChanIO
-                                                , newTVarIO
-                                                , readTChan
-                                                , readTVar
-                                                , readTVarIO
-                                                , registerDelay
-                                                , writeTChan
-                                                , writeTVar
-                                                )
 
 type Scope = T.Text
 type Emote = (Scope, T.Text)
@@ -171,15 +118,15 @@ makeLenses ''Play
 instance Default Play where
   def = Play SB.empty False 0 0
 
-data State = State
+data ChatState = ChatState
   { _play :: Maybe Play
   , _delay :: Scientific
   }
 
-makeLenses ''State
+makeLenses ''ChatState
 
-instance Default State where
-  def = State Nothing 0
+instance Default ChatState where
+  def = ChatState Nothing 0
 
 data Config = Config
   { ipcPath :: FilePath
@@ -189,7 +136,7 @@ data Config = Config
   deriving stock Show
 
 bttv :: Scope -> [Bt.Emote] -> Emotes
-bttv s = HM.fromList . map emote where
+bttv s = HM.fromList . fmap emote where
   emote e = (Bt.code e, ("bttv " <> s, Bt.emoteUrl $ Bt.id e))
 
 bttvGlobal :: Bt.Global -> Emotes
@@ -201,10 +148,10 @@ bttvChannel = chan <> shared where
   shared = bttv "channel shared" . Bt.sharedEmotes
 
 ffz :: Fz.Channel -> Emotes
-ffz = HM.fromList . map emote . (Fz.emoticons <=< HM.elems . Fz.sets) where
+ffz = HM.fromList . fmap emote . (Fz.emoticons <=< HM.elems . Fz.sets) where
   emote e = (Fz.name e, ("ffz channel", url)) where
     -- 2 (higher res image) not always available, so fallback to 1
-    url = fromJust $ asum $ map (`HM.lookup` Fz.urls e) [2, 1]
+    url = fromJust $ asum $ (`HM.lookup` Fz.urls e) <$> [2, 1]
 
 loadEmotes :: MonadIO m => Tv.ChannelId -> m Emotes
 loadEmotes cid = liftIO $ fold <$> mapConcurrently id
@@ -236,7 +183,7 @@ fmtUser usr = div_ [class_ "details"] $ do
 fmtFragment :: Tv.Fragment -> Fmt ()
 fmtFragment Tv.Fragment { text = txt, emoticon = emo }
   | Just e <- emo = fmtEmote "twitch" txt $ Tv.emoteUrl $ Tv.emoticon_id e
-  | otherwise = fold $ L.intersperse " " $ map fmtWord $ T.split (== ' ') txt
+  | otherwise = fold $ L.intersperse " " $ fmtWord <$> T.split (== ' ') txt
 
 fmtWord :: T.Text -> Fmt ()
 fmtWord wor = ask >>= \emotes -> if
@@ -267,7 +214,7 @@ format e c = Comment
     u = Tv.commenter c
     (h, m) = evalRWS (renderBST $ fmtComment c) e ()
 
-render :: ([Comment] -> [Comment]) -> State -> Html ()
+render :: ([Comment] -> [Comment]) -> ChatState -> Html ()
 render f st = case st ^. play of
   Nothing -> pre_ "idle"
   Just (Play cms don cur lat) -> do
@@ -285,15 +232,15 @@ render f st = case st ^. play of
         let recent = f $ SB.past cms
         toHtmlRaw $ foldMap html recent
 
-reseek :: State -> State
+reseek :: ChatState -> ChatState
 reseek st = play . _Just %~ upd $ st where
   upd p = comments %~ SB.seek adv $ p where
     adv c = time c < t
     t = p ^. current - st ^. delay
 
-run :: Config -> IO ()
-run conf = evalContT $ do
-  state <- newTVarIO def
+runMpvChat :: Config -> IO ()
+runMpvChat conf = evalContT $ do
+  chatState <- newTVarIO def
   active <- newTVarIO False
   seek <- newTVarIO False
   redraw <- newBroadcastTChanIO
@@ -312,7 +259,7 @@ run conf = evalContT $ do
       pageEvents f = pure $ responseEvents $ do
         red <- atomically $ dupTChan redraw
         forever $ do
-          st <- readTVarIO state
+          st <- readTVarIO chatState
           yield def { eventData = renderBS $ f st }
           atomically $ readTChan red
       page f = wai p where
@@ -327,7 +274,7 @@ run conf = evalContT $ do
           ]
       app = asks pathInfo >>= \case
         [] -> page $ render $ take 500
-        ["user", usr] -> page $ render $ take 50 . filter p where
+        ["user", usr] -> page $ render $ take 50 . L.filter p where
           p c = user c == usr || display_user c == usr
         ["doc"] -> pure $ responsePlainStatus temporaryRedirect307
           [(hLocation, "/doc/all/index.html")]
@@ -338,7 +285,7 @@ run conf = evalContT $ do
   mpv <- newMpvClient
   taskLoad <- ContT withEmptyTask
   let update f = do
-        modifyTVar' state $ reseek . f
+        modifyTVar' chatState $ reseek . f
         writeTChan redraw ()
       append cs = atomically $ update $ play . _Just %~
         (latest .~ time (NE.last cs)) .
@@ -370,7 +317,7 @@ run conf = evalContT $ do
   contT_ $ withTask_ $ forever $ do
     timeout <- registerDelay 1_000_000
     atomically $ do
-      guard . isJust . (^. play) =<< readTVar state
+      guard . isJust . (^. play) =<< readTVar chatState
       readTVar seek >>= \case
         True -> writeTVar seek False
         False -> do

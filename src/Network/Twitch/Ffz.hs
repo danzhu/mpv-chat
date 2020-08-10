@@ -6,14 +6,11 @@ module Network.Twitch.Ffz
   , getChannel
   ) where
 
-import           Network.Request                ( request )
-import qualified Network.Twitch.Twitch         as Tv
-
-import           Control.Monad.IO.Class         ( MonadIO )
-import           Data.Aeson                     ( FromJSON )
-import qualified Data.Text                     as T
 import qualified Data.HashMap.Strict           as HM
-import           GHC.Generics                   ( Generic )
+import qualified Data.Text                     as T
+import           MpvChat.Prelude
+import           Network.Request                ( request )
+import qualified Network.Twitch                as Tv
 
 data Emote = Emote
   { name :: T.Text

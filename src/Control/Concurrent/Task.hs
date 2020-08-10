@@ -10,24 +10,12 @@ module Control.Concurrent.Task
   , withTask_
   ) where
 
-import           Control.Monad.IO.Class         ( MonadIO )
-import           Control.Monad.IO.Unlift        ( MonadUnliftIO )
-import           Data.Foldable                  ( traverse_ )
+import           MpvChat.Prelude
 import           UnliftIO.Async                 ( Async
                                                 , async
                                                 , cancel
                                                 , link
                                                 , uninterruptibleCancel
-                                                )
-import           UnliftIO.Exception             ( bracket )
-import           UnliftIO.STM                   ( TVar
-                                                , atomically
-                                                , newEmptyTMVarIO
-                                                , newTVarIO
-                                                , putTMVar
-                                                , readTMVar
-                                                , readTVarIO
-                                                , swapTVar
                                                 )
 
 newtype Task = Task (TVar (Maybe (Async ())))

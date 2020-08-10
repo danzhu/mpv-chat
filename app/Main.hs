@@ -2,10 +2,11 @@ module Main
   ( main
   ) where
 
-import           Network.Twitch.Chat            ( Config(Config)
-                                                , run
+import           MpvChat                        ( Config(Config)
+                                                , runMpvChat
                                                 )
-import qualified Network.Twitch.Twitch         as Tv
+import           MpvChat.Prelude
+import qualified Network.Twitch                as Tv
 
 import           Control.Applicative            ( (<**>) )
 import           Options.Applicative            ( Parser
@@ -53,4 +54,4 @@ program = info (config <**> helper) $
   progDesc "mpv chat"
 
 main :: IO ()
-main = run =<< execParser program
+main = runMpvChat =<< execParser program

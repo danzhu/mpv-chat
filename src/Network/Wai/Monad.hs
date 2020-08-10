@@ -4,16 +4,11 @@ module Network.Wai.Monad
   , wai
   ) where
 
+import           MpvChat.Prelude
 import           Network.Wai                    ( Application
                                                 , Request
                                                 , Response
                                                 , ResponseReceived
-                                                )
-import           Control.Monad.Trans.Reader     ( ReaderT(ReaderT)
-                                                , runReaderT
-                                                )
-import           Control.Monad.Trans.Cont       ( ContT(ContT)
-                                                , runContT
                                                 )
 
 type Wai = ReaderT Request (ContT ResponseReceived IO)

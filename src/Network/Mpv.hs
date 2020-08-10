@@ -13,29 +13,11 @@ module Network.Mpv
   ) where
 
 import           Control.Concurrent.Task        ( withTask_ )
-import qualified Data.IdMap                    as IM
-
-import           Control.Applicative            ( (<|>) )
-import           Control.Concurrent.STM.TVar    ( stateTVar )
-import           Control.Monad                  ( forever
-                                                , (<=<)
-                                                )
 import           Control.Monad.Catch            ( MonadThrow
                                                 , throwM
                                                 )
-import           Control.Monad.IO.Class         ( MonadIO
-                                                , liftIO
-                                                )
-import           Control.Monad.IO.Unlift        ( MonadUnliftIO
-                                                , withRunInIO
-                                                )
-import           Control.Monad.Trans.Reader     ( ReaderT
-                                                , ask
-                                                , runReaderT
-                                                )
-import           Data.Aeson                     ( FromJSON
-                                                , ToJSON
-                                                , Value
+import           Control.Monad.RWS              ( ask )
+import           Data.Aeson                     ( Value
                                                 , eitherDecodeStrict'
                                                 , encode
                                                 , object
@@ -49,9 +31,6 @@ import           Data.Aeson                     ( FromJSON
 import           Data.Aeson.Types               ( parseEither )
 import qualified Data.ByteString               as B
 import qualified Data.ByteString.Lazy          as LB
-import           Data.Conduit                   ( runConduit
-                                                , (.|)
-                                                )
 import qualified Data.Conduit.Combinators      as C
 import           Data.Conduit.Network.Unix      ( AppDataUnix
                                                 , appSink
@@ -59,33 +38,11 @@ import           Data.Conduit.Network.Unix      ( AppDataUnix
                                                 , clientSettings
                                                 , runUnixClient
                                                 )
-import           Data.Foldable                  ( sequenceA_
-                                                , traverse_
-                                                )
 import qualified Data.HashMap.Strict           as HM
-import           Data.Maybe                     ( fromMaybe )
+import qualified Data.IdMap                    as IM
+import qualified Data.List                     as L
 import qualified Data.Text                     as T
-import           UnliftIO.Async                 ( concurrently_ )
-import           UnliftIO.Exception             ( Exception )
-import           UnliftIO.STM                   ( TBQueue
-                                                , TChan
-                                                , TMVar
-                                                , TVar
-                                                , atomically
-                                                , dupTChan
-                                                , modifyTVar'
-                                                , newEmptyTMVarIO
-                                                , newTBQueueIO
-                                                , newTChanIO
-                                                , newTVarIO
-                                                , putTMVar
-                                                , readTBQueue
-                                                , readTChan
-                                                , readTMVar
-                                                , readTVarIO
-                                                , writeTBQueue
-                                                , writeTChan
-                                                )
+import           MpvChat.Prelude
 
 type Prop = T.Text
 type Error = T.Text
@@ -221,7 +178,7 @@ class CommandType a where
 instance FromJSON r => CommandType (IO r) where
   commandValue args mpv = do
     wait <- newEmptyTMVarIO
-    atomically $ writeTBQueue (requests mpv) (reverse args, wait)
+    atomically $ writeTBQueue (requests mpv) (L.reverse args, wait)
     reply <- atomically $ readTMVar wait
     r <- expectE MpvIpcError reply
     -- HACK: round-trip converting '()' to 'Value' and back,

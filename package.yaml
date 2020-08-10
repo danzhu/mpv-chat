@@ -8,6 +8,7 @@ default-extensions:
 - GeneralizedNewtypeDeriving
 - LambdaCase
 - MultiWayIf
+- NoImplicitPrelude
 - OverloadedStrings
 - ScopedTypeVariables
 - TupleSections

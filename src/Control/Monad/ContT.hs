@@ -3,10 +3,7 @@ module Control.Monad.ContT
   , runContT_
   ) where
 
-import           Control.Monad.Trans.Cont       ( ContT
-                                                , mapContT
-                                                , runContT
-                                                )
+import           MpvChat.Prelude
 
 contT_ :: (m r -> m r) -> ContT r m ()
 contT_ f = mapContT f $ pure ()

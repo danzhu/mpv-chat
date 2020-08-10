@@ -2,21 +2,9 @@ module Network.Wai.Application.Static
   ( appStatic
   ) where
 
-import           Network.Wai.IO                 ( responsePlainStatus )
-import           Network.Wai.Middleware.StaticRoute
-                                                ( routeAccept
-                                                , routeMethod
-                                                )
-
-import           Control.Exception              ( IOException
-                                                , try
-                                                )
-import           Data.Foldable                  ( asum )
 import qualified Data.Map.Strict               as M
 import qualified Data.Text                     as T
-import           Lens.Micro                     ( _last
-                                                , (^.)
-                                                )
+import           MpvChat.Prelude
 import           Network.HTTP.Media.Accept      ( parseAccept )
 import           Network.HTTP.Types.Header      ( hContentType
                                                 , hLocation
@@ -40,10 +28,15 @@ import           Network.Wai                    ( Application
                                                 , responseFile
                                                 )
 import           Network.Wai.Handler.Warp       ( getFileInfo )
+import           Network.Wai.IO                 ( responsePlainStatus )
+import           Network.Wai.Middleware.StaticRoute
+                                                ( routeAccept
+                                                , routeMethod
+                                                )
 import           System.FilePath                ( joinPath )
 
 mimeByExt :: FileName -> Maybe MimeType
-mimeByExt = asum . map (defaultMimeMap M.!?) . fileNameExtensions
+mimeByExt = asum . fmap (defaultMimeMap M.!?) . fileNameExtensions
 
 appStatic :: (Status -> Application) -> FilePath -> Application
 appStatic err dir = app where
@@ -64,7 +57,7 @@ appStatic err dir = app where
       path = pathInfo req
       -- due to Monoid instance, empty path returns empty string
       fn = path ^. _last
-      fp = joinPath $ dir : map T.unpack path
+      fp = joinPath $ dir : fmap T.unpack path
   file hs fp req res = try (getFileInfo req fp) >>= \case
     Left (_ :: IOException) -> err notFound404 req res
     Right _ -> res $ responseFile ok200 hs fp Nothing

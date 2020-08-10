@@ -7,6 +7,8 @@ module Data.SeekBuffer
   , seek
   ) where
 
+import           MpvChat.Prelude
+
 data SeekBuffer a = SeekBuffer
   { past :: [a]
   , future :: [a]

@@ -1,4 +1,4 @@
-module Network.Twitch.Twitch
+module Network.Twitch
   ( Auth(..)
   , Channel(..)
   , ChannelId
@@ -20,25 +20,13 @@ module Network.Twitch.Twitch
   , sourceComments
   ) where
 
-import           Network.Request                ( request )
-
-import           Control.Monad.IO.Class         ( MonadIO )
-import           Data.Aeson                     ( FromJSON )
-import           Data.Bifunctor                 ( first )
 import qualified Data.ByteString               as B
 import           Data.Char                      ( isDigit )
-import           Data.Conduit                   ( ConduitT
-                                                , yield
-                                                )
-import           Data.Foldable                  ( traverse_ )
-import           Data.Hashable                  ( Hashable )
-import qualified Data.List.NonEmpty            as NE
-import           Data.Scientific                ( Scientific )
 import qualified Data.Text                     as T
 import           Data.Text.Encoding             ( encodeUtf8 )
-import           Data.Void                      ( Void )
-import           GHC.Generics                   ( Generic )
+import           MpvChat.Prelude
 import           Network.HTTP.Types             ( Query )
+import           Network.Request                ( request )
 import           Text.Megaparsec                ( Parsec
                                                 , runParser
                                                 , takeWhile1P
@@ -91,7 +79,7 @@ data Fragment = Fragment
   deriving anyclass (FromJSON, Hashable)
 
 data Message = Message
-  { fragments  :: NE.NonEmpty Fragment
+  { fragments  :: NonEmpty Fragment
   , user_color :: Maybe T.Text
   }
   deriving stock (Eq, Generic, Show)
@@ -114,7 +102,7 @@ data Comment = Comment
   deriving anyclass (FromJSON, Hashable)
 
 data Comments = Comments
-  { comments :: NE.NonEmpty Comment
+  { comments :: NonEmpty Comment
   , _next    :: Maybe T.Text
   }
   deriving stock (Generic, Show)
@@ -172,7 +160,7 @@ getVideo auth vid = query auth (videoUrl vid) []
 getClip :: MonadIO m => Auth -> Slug -> m Clip
 getClip auth slug = query auth (clipUrl slug) []
 
-sourceComments :: MonadIO m => Auth -> VideoId -> ConduitT i (NE.NonEmpty Comment) m ()
+sourceComments :: MonadIO m => Auth -> VideoId -> ConduitT i (NonEmpty Comment) m ()
 sourceComments auth vid = fetch "" where
   fetch cur = do
     cs <- query auth (commentsUrl vid) [("cursor", Just $ encodeUtf8 cur)]

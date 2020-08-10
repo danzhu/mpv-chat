@@ -7,10 +7,6 @@ module Network.Wai.IO
   , responseSource
   ) where
 
-import           Control.Monad                  ( unless )
-import           Control.Monad.IO.Class         ( MonadIO
-                                                , liftIO
-                                                )
 import           Data.Aeson                     ( Value
                                                 , json'
                                                 )
@@ -22,16 +18,9 @@ import           Data.ByteString.Builder        ( Builder
                                                 )
 import qualified Data.ByteString.Lazy          as LB
 import qualified Data.ByteString.Lazy.Char8    as LBC
-import           Data.Conduit                   ( ConduitT
-                                                , runConduit
-                                                , yield
-                                                , (.|)
-                                                )
 import           Data.Conduit.Attoparsec        ( sinkParser )
 import qualified Data.Conduit.Combinators      as C
-import           Data.Default.Class             ( Default
-                                                , def
-                                                )
+import           MpvChat.Prelude
 import           Network.HTTP.Types.Header      ( ResponseHeaders
                                                 , hContentType
                                                 )

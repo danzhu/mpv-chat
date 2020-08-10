@@ -8,7 +8,7 @@ module Data.IdMap
   ) where
 
 import qualified Data.IntMap.Strict            as IM
-import           Prelude                 hiding ( lookup )
+import           MpvChat.Prelude
 
 type Id = Int
 
