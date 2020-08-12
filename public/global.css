@@ -1,6 +1,6 @@
 body {
     color: #cccccc;
-    background: #222222;
+    background-color: #222222;
     font-family: sans-serif;
 }
 
@@ -12,6 +12,10 @@ body {
 .comment {
     display: flex;
     padding: .2em 0;
+}
+
+.highlight {
+    background-color: #333333;
 }
 
 .icon {

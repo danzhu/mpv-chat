@@ -4,7 +4,10 @@ module MpvChat.Prelude
 where
 
 import           Control.Applicative           as E
-                                                ( (<|>) )
+                                                ( many
+                                                , some
+                                                , (<|>)
+                                                )
 import           Control.Concurrent.STM.TVar   as E
                                                 ( stateTVar )
 import           Control.Monad                 as E
@@ -98,6 +101,8 @@ import           Data.Functor.Identity         as E
                                                 ( Identity(Identity)
                                                 , runIdentity
                                                 )
+import           Data.HashSet                  as E
+                                                ( HashSet )
 import           Data.Hashable                 as E
                                                 ( Hashable )
 import           Data.List.NonEmpty            as E
@@ -113,6 +118,12 @@ import           Data.Traversable              as E
 import           Data.Void                     as E
                                                 ( Void
                                                 , absurd
+                                                )
+import           GHC.Exts                      as E
+                                                ( IsList
+                                                , Item
+                                                , fromList
+                                                , toList
                                                 )
 import           GHC.Generics                  as E
                                                 ( Generic )

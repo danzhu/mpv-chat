@@ -11,13 +11,13 @@ import           Control.Concurrent.Task        ( startTask
                                                 , withTask_
                                                 )
 import           Control.Monad.ContT            ( contT_ )
-import           Control.Monad.RWS              ( ask
-                                                , asks
+import           Control.Monad.RWS              ( asks
                                                 , tell
                                                 )
 import qualified Data.ByteString.Lazy          as LB
 import qualified Data.Conduit.Combinators      as C
 import qualified Data.HashMap.Strict           as HM
+import qualified Data.HashSet                  as HS
 import qualified Data.List                     as L
 import qualified Data.List.NonEmpty            as NE
 import           Data.Maybe                     ( fromJust )
@@ -95,8 +95,9 @@ import           UnliftIO.Environment           ( getExecutablePath )
 type Scope = T.Text
 type Emote = (Scope, T.Text)
 type Emotes = HM.HashMap T.Text Emote
+type Highlights = HashSet T.Text
 type Mentions = [T.Text]
-type Fmt = HtmlT (RWS Emotes Mentions ())
+type Fmt = HtmlT (RWS (Emotes, Highlights) Mentions ())
 
 data Comment = Comment
   { time :: Scientific
@@ -132,11 +133,12 @@ data Config = Config
   { ipcPath :: FilePath
   , auth :: Tv.Auth
   , port :: Port
+  , highlights :: Highlights
   }
   deriving stock Show
 
 bttv :: Scope -> [Bt.Emote] -> Emotes
-bttv s = HM.fromList . fmap emote where
+bttv s = fromList . fmap emote where
   emote e = (Bt.code e, ("bttv " <> s, Bt.emoteUrl $ Bt.id e))
 
 bttvGlobal :: Bt.Global -> Emotes
@@ -148,7 +150,7 @@ bttvChannel = chan <> shared where
   shared = bttv "channel shared" . Bt.sharedEmotes
 
 ffz :: Fz.Channel -> Emotes
-ffz = HM.fromList . fmap emote . (Fz.emoticons <=< HM.elems . Fz.sets) where
+ffz = fromList . fmap emote . (Fz.emoticons <=< HM.elems . Fz.sets) where
   emote e = (Fz.name e, ("ffz channel", url)) where
     -- 2 (higher res image) not always available, so fallback to 1
     url = fromJust $ asum $ (`HM.lookup` Fz.urls e) <$> [2, 1]
@@ -161,12 +163,18 @@ loadEmotes cid = liftIO $ fold <$> mapConcurrently id
   ]
 
 fmtComment :: Tv.Comment -> Fmt ()
-fmtComment Tv.Comment { message = msg, commenter = usr } =
-  li_ [class_ "comment"] $ do
+fmtComment cmt = asks snd >>= \hls -> do
+  let
+    msg = Tv.message cmt
+    usr = Tv.commenter cmt
+    nam = Tv.name usr
+  li_
+    [ class_ $ bool "comment" "comment highlight" $ HS.member nam hls
+    ] $ do
     a_
       [ class_ "icon"
       , style_ $ maybe "" ("background-color: " <>) $ Tv.user_color msg
-      , href_ $ "/user/" <> Tv.name usr
+      , href_ $ "/user/" <> nam
       ] $ fmtUser usr
     div_ [class_ "message"] $
       traverse_ fmtFragment $ Tv.fragments msg
@@ -186,7 +194,7 @@ fmtFragment Tv.Fragment { text = txt, emoticon = emo }
   | otherwise = fold $ L.intersperse " " $ fmtWord <$> T.split (== ' ') txt
 
 fmtWord :: T.Text -> Fmt ()
-fmtWord wor = ask >>= \emotes -> if
+fmtWord wor = asks fst >>= \emotes -> if
   | Just (ori, url) <- HM.lookup wor emotes -> fmtEmote ori wor url
   | Just ('@', nam) <- T.uncons wor -> do
       tell [nam]
@@ -202,8 +210,8 @@ fmtEmote ori txt url = img_
   , title_ $ txt <> " [" <> ori <> "]"
   ]
 
-format :: Emotes -> Tv.Comment -> Comment
-format e c = Comment
+format :: Emotes -> Highlights -> Tv.Comment -> Comment
+format es hls c = Comment
   { html = h
   , time = Tv.content_offset_seconds c
   , user = Tv.name u
@@ -212,7 +220,7 @@ format e c = Comment
   }
   where
     u = Tv.commenter c
-    (h, m) = evalRWS (renderBST $ fmtComment c) e ()
+    (h, m) = evalRWS (renderBST $ fmtComment c) (es, hls) ()
 
 render :: ([Comment] -> [Comment]) -> ChatState -> Html ()
 render f st = case st ^. play of
@@ -298,7 +306,7 @@ runMpvChat conf = evalContT $ do
         emotes <- loadEmotes $ Tv._id $ Tv.channel video
         runConduit $
           Tv.sourceComments (auth conf) vid
-          .| C.mapE (format emotes)
+          .| C.mapE (format emotes $ highlights conf)
           .| C.mapM_ append
         atomically $ update $ play . _Just . done .~ True
       unload = startTask taskLoad $
