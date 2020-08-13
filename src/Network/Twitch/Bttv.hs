@@ -9,16 +9,15 @@ module Network.Twitch.Bttv
   , globalUrl
   ) where
 
-import qualified Data.Text                     as T
-import           MpvChat.Prelude         hiding ( id )
+import           MpvChat.Prelude
 import           Network.Request                ( request )
 import qualified Network.Twitch                as Tv
 
 -- HACK: v3 shared emote has different structure than global/channel,
 -- here are common fields to avoid different types
 data Emote = Emote
-  { id :: T.Text
-  , code :: T.Text
+  { id :: Text
+  , code :: Text
   }
   deriving stock (Generic, Show)
   deriving anyclass FromJSON
@@ -32,16 +31,16 @@ data Channel = Channel
   deriving stock (Generic, Show)
   deriving anyclass FromJSON
 
-rootUrl :: T.Text
+rootUrl :: Text
 rootUrl = "https://api.betterttv.net/3"
 
-globalUrl :: T.Text
+globalUrl :: Text
 globalUrl = rootUrl <> "/cached/emotes/global"
 
-channelUrl :: Tv.ChannelId -> T.Text
-channelUrl c = rootUrl <> "/cached/users/twitch/" <> T.pack (show c)
+channelUrl :: Tv.ChannelId -> Text
+channelUrl c = rootUrl <> "/cached/users/twitch/" <> fromList (show c)
 
-emoteUrl :: T.Text -> T.Text
+emoteUrl :: Text -> Text
 emoteUrl i = "//cdn.betterttv.net/emote/" <> i <> "/2x"
 
 getGlobal :: MonadIO m => m Global

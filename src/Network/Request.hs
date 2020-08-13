@@ -2,7 +2,6 @@ module Network.Request
   ( request
   ) where
 
-import qualified Data.Text                     as T
 import           Network.HTTP.Simple            ( setRequestHeaders
                                                 , getResponseBody
                                                 , httpJSON
@@ -14,9 +13,9 @@ import           Network.HTTP.Types             ( Query
                                                 )
 import           MpvChat.Prelude
 
-request :: (MonadIO m, FromJSON a) => T.Text -> Query -> RequestHeaders -> m a
+request :: (MonadIO m, FromJSON a) => Text -> Query -> RequestHeaders -> m a
 request url query headers = do
-  req <- liftIO $ parseRequestThrow $ T.unpack url
+  req <- liftIO $ parseRequestThrow $ toList url
   res <- httpJSON $ req
     & setRequestHeaders headers
     & setRequestQueryString query

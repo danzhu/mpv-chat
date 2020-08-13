@@ -2,8 +2,6 @@ module Network.Wai.Application.Static
   ( appStatic
   ) where
 
-import qualified Data.Map.Strict               as M
-import qualified Data.Text                     as T
 import           MpvChat.Prelude
 import           Network.HTTP.Media.Accept      ( parseAccept )
 import           Network.HTTP.Types.Header      ( hContentType
@@ -36,7 +34,7 @@ import           Network.Wai.Middleware.StaticRoute
 import           System.FilePath                ( joinPath )
 
 mimeByExt :: FileName -> Maybe MimeType
-mimeByExt = asum . fmap (defaultMimeMap M.!?) . fileNameExtensions
+mimeByExt = asum . map (`lookup` defaultMimeMap) . fileNameExtensions
 
 appStatic :: (Status -> Application) -> FilePath -> Application
 appStatic err dir = app where
@@ -45,8 +43,8 @@ appStatic err dir = app where
     , (methodHead, get)
     ]
   get req res
-    | any (T.isPrefixOf ".") path = err forbidden403 req res
-    | T.null fn = do
+    | any (isPrefixOf ".") path = err forbidden403 req res
+    | null fn = do
         let hs = [(hLocation, "index.html")]
         -- TODO: extract responsePlainStatus
         res $ responsePlainStatus temporaryRedirect307 hs
@@ -57,7 +55,7 @@ appStatic err dir = app where
       path = pathInfo req
       -- due to Monoid instance, empty path returns empty string
       fn = path ^. _last
-      fp = joinPath $ dir : fmap T.unpack path
+      fp = joinPath $ dir : map toList path
   file hs fp req res = try (getFileInfo req fp) >>= \case
     Left (_ :: IOException) -> err notFound404 req res
     Right _ -> res $ responseFile ok200 hs fp Nothing

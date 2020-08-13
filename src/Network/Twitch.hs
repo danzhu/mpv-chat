@@ -20,10 +20,7 @@ module Network.Twitch
   , sourceComments
   ) where
 
-import qualified Data.ByteString               as B
 import           Data.Char                      ( isDigit )
-import qualified Data.Text                     as T
-import           Data.Text.Encoding             ( encodeUtf8 )
 import           MpvChat.Prelude
 import           Network.HTTP.Types             ( Query )
 import           Network.Request                ( request )
@@ -35,21 +32,21 @@ import           Text.Megaparsec                ( Parsec
 import           Text.Megaparsec.Char.Lexer     ( decimal )
 import           Text.Megaparsec.Error          ( errorBundlePretty )
 
-type Parser = Parsec Void T.Text
+type Parser = Parsec Void Text
 
 newtype ChannelId = ChannelId Int
   deriving newtype (Eq, FromJSON, Hashable, Ord, Show)
 
-newtype VideoId = VideoId T.Text
+newtype VideoId = VideoId Text
   deriving newtype (Eq, FromJSON, Hashable, Ord, Show)
 
 -- | Clip id
-newtype Slug = Slug T.Text
+newtype Slug = Slug Text
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (FromJSON, Hashable)
 
 newtype Auth = Auth
-  { clientId :: B.ByteString
+  { clientId :: ByteString
   }
   deriving stock Show
 
@@ -66,13 +63,13 @@ newtype Video = Video
   deriving anyclass (FromJSON, Hashable)
 
 newtype Emoticon = Emoticon
-  { emoticon_id :: T.Text
+  { emoticon_id :: Text
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (FromJSON, Hashable)
 
 data Fragment = Fragment
-  { text     :: T.Text
+  { text     :: Text
   , emoticon :: Maybe Emoticon
   }
   deriving stock (Eq, Generic, Show)
@@ -80,15 +77,15 @@ data Fragment = Fragment
 
 data Message = Message
   { fragments  :: NonEmpty Fragment
-  , user_color :: Maybe T.Text
+  , user_color :: Maybe Text
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (FromJSON, Hashable)
 
 data Commenter = Commenter
-  { name         :: T.Text
-  , display_name :: T.Text
-  , bio          :: Maybe T.Text
+  { name         :: Text
+  , display_name :: Text
+  , bio          :: Maybe Text
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (FromJSON, Hashable)
@@ -103,55 +100,55 @@ data Comment = Comment
 
 data Comments = Comments
   { comments :: NonEmpty Comment
-  , _next    :: Maybe T.Text
+  , _next    :: Maybe Text
   }
   deriving stock (Generic, Show)
   deriving anyclass FromJSON
 
 data Thumbnails = Thumbnails
-  { medium :: T.Text
-  , small :: T.Text
-  , tiny :: T.Text
+  { medium :: Text
+  , small :: Text
+  , tiny :: Text
   }
   deriving stock (Generic, Show)
   deriving anyclass (FromJSON, Hashable)
 
 data Clip = Clip
-  { title :: T.Text
+  { title :: Text
   , thumbnails :: Thumbnails
   }
   deriving stock (Generic, Show)
   deriving anyclass (FromJSON, Hashable)
 
-rootUrl :: T.Text
+rootUrl :: Text
 rootUrl = "https://api.twitch.tv/v5"
 
-videoUrl :: VideoId -> T.Text
+videoUrl :: VideoId -> Text
 videoUrl (VideoId vid) = rootUrl <> "/videos/" <> vid
 
-commentsUrl :: VideoId -> T.Text
+commentsUrl :: VideoId -> Text
 commentsUrl vid = videoUrl vid <> "/comments"
 
-emoteUrl :: T.Text -> T.Text
+emoteUrl :: Text -> Text
 emoteUrl i = "//static-cdn.jtvnw.net/emoticons/v1/" <> i <> "/2.0"
 
-clipUrl :: Slug -> T.Text
+clipUrl :: Slug -> Text
 clipUrl (Slug s) = rootUrl <> "/clips/" <> s
 
-query :: (MonadIO m, FromJSON a) => Auth -> T.Text -> Query -> m a
+query :: (MonadIO m, FromJSON a) => Auth -> Text -> Query -> m a
 query auth url q = request url q [("Client-ID", clientId auth)]
 
-parseChannelId :: T.Text -> Either String ChannelId
+parseChannelId :: Text -> Either String ChannelId
 parseChannelId = first errorBundlePretty . runParser (p <* eof) "" where
   p :: Parser ChannelId
   p = ChannelId <$> decimal
 
-parseVideoId :: T.Text -> Either String VideoId
+parseVideoId :: Text -> Either String VideoId
 parseVideoId = first errorBundlePretty . runParser (p <* eof) "" where
   p :: Parser VideoId
   p = VideoId <$> takeWhile1P (Just "video id") isDigit
 
-parseSlug :: T.Text -> Either String Slug
+parseSlug :: Text -> Either String Slug
 parseSlug = pure . Slug
 
 getVideo :: MonadIO m => Auth -> VideoId -> m Video

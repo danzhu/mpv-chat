@@ -60,6 +60,7 @@ library:
   - microlens
   - microlens-th
   - mime-types
+  - mono-traversable
   - scientific
   - unliftio
   - unliftio-core

@@ -3,8 +3,6 @@ module Network.Wai.Middleware.StaticRoute
   , routeMethod
   ) where
 
-import qualified Data.ByteString.Char8         as BC
-import qualified Data.List                     as L
 import           MpvChat.Prelude
 import           Network.HTTP.Media             ( MediaType
                                                 , mapAccept
@@ -28,9 +26,9 @@ import           Network.Wai                    ( Application
 
 routeMethod :: (Status -> Application) -> [(Method, Application)] -> Application
 routeMethod err apps req res
-  | Just app <- L.lookup m apps = app req res
+  | Just app <- lookup m apps = app req res
   | m == methodOptions = do
-      let hs = [(hAllow, BC.intercalate "," $ fst <$> apps)]
+      let hs = [(hAllow, intercalate "," $ fst <$> apps)]
       res $ responseBuilder ok200 hs mempty
   | otherwise = err methodNotAllowed405 req res
   where
@@ -39,4 +37,4 @@ routeMethod err apps req res
 routeAccept :: (Status -> Application) -> [(MediaType, Application)] -> Application
 routeAccept err apps = join $ fromMaybe none . mapAccept apps . accept where
   none = err notAcceptable406
-  accept = fromMaybe "*/*" . L.lookup hAccept . requestHeaders
+  accept = fromMaybe "*/*" . lookup hAccept . requestHeaders

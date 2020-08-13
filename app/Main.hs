@@ -46,7 +46,7 @@ config = Config <$> ipc <*> auth <*> por <*> hls where
     value 8192 <>
     help "server port" <>
     showDefault
-  hls = fmap fromList $ many $ option str $
+  hls = map setFromList $ many $ option str $
     long "highlight" <>
     metavar "NAME" <>
     help "highlight user"

@@ -29,8 +29,6 @@ import           Data.Aeson                     ( Value
                                                 , (.=)
                                                 )
 import           Data.Aeson.Types               ( parseEither )
-import qualified Data.ByteString               as B
-import qualified Data.ByteString.Lazy          as LB
 import qualified Data.Conduit.Combinators      as C
 import           Data.Conduit.Network.Unix      ( AppDataUnix
                                                 , appSink
@@ -38,14 +36,11 @@ import           Data.Conduit.Network.Unix      ( AppDataUnix
                                                 , clientSettings
                                                 , runUnixClient
                                                 )
-import qualified Data.HashMap.Strict           as HM
 import qualified Data.IdMap                    as IM
-import qualified Data.List                     as L
-import qualified Data.Text                     as T
 import           MpvChat.Prelude
 
-type Prop = T.Text
-type Error = T.Text
+type Prop = Text
+type Error = Text
 
 data Request
   = ReqCommand IM.Id Value
@@ -56,7 +51,7 @@ instance ToJSON Request where
 
 data Event
   = EvtPropChange IM.Id Prop Value
-  | EvtOther T.Text
+  | EvtOther Text
   deriving stock Show
 
 -- 'Maybe' needed as 'data' field may not exist
@@ -85,7 +80,7 @@ instance FromJSON Response where
 data MpvError
   = MpvIpcError Error
   | MpvTypeError String
-  | MpvJsonError B.ByteString String
+  | MpvJsonError ByteString String
   | MpvNoReqId
   deriving stock Show
   deriving anyclass Exception
@@ -93,7 +88,7 @@ data MpvError
 data Mpv = Mpv
   { requests :: TBQueue ([Value], TMVar Reply)
   , waits :: TVar (IM.IdMap (TMVar Reply))
-  , handlers :: TVar (HM.HashMap T.Text (IO ()))
+  , handlers :: TVar (HashMap Text (IO ()))
   , changes :: TVar (IM.IdMap (Value -> IO ()))
   , events :: TChan Event
   }
@@ -110,18 +105,18 @@ newMpvClient :: MonadIO m => m Mpv
 newMpvClient = Mpv
   <$> newTBQueueIO 16
   <*> newTVarIO (IM.empty 1)
-  <*> newTVarIO HM.empty
+  <*> newTVarIO mempty
   <*> newTVarIO (IM.empty 1)
   <*> newTChanIO
 
-produce :: MpvIO B.ByteString
+produce :: MpvIO ByteString
 produce = do
   mpv <- ask
   (cmd, wait) <- atomically $ readTBQueue $ requests mpv
   rid <- atomically $ stateTVar (waits mpv) $ IM.insert wait
-  pure $ LB.toStrict $ encode $ ReqCommand rid $ toJSON cmd
+  pure $ toStrict $ encode $ ReqCommand rid $ toJSON cmd
 
-consume :: B.ByteString -> MpvIO ()
+consume :: ByteString -> MpvIO ()
 consume line = do
   mpv <- ask
   res <- expectE (MpvJsonError line) $ eitherDecodeStrict' line
@@ -152,8 +147,8 @@ handle = do
       h <- IM.lookup i <$> readTVarIO (changes mpv)
       liftIO $ traverse_ ($ v) h
     EvtOther e -> do
-      h <- HM.lookup e <$> readTVarIO (handlers mpv)
-      liftIO $ sequenceA_ h
+      h <- lookup e <$> readTVarIO (handlers mpv)
+      liftIO $ sequence_ h
 
 runMpv :: MonadIO m => Mpv -> FilePath -> m ()
 runMpv mpv ipcPath = liftIO $
@@ -168,9 +163,9 @@ fromJson = expectE MpvTypeError . parseEither parseJSON
 eventChan :: MonadIO m => Mpv -> m (TChan Event)
 eventChan mpv = atomically $ dupTChan $ events mpv
 
-observeEvent :: MonadUnliftIO m => Mpv -> T.Text -> m () -> m ()
+observeEvent :: MonadUnliftIO m => Mpv -> Text -> m () -> m ()
 observeEvent mpv e f = withRunInIO $ \run -> atomically $
-  modifyTVar' (handlers mpv) $ HM.insertWith (<>) e $ run f
+  modifyTVar' (handlers mpv) $ insertWith (<>) e $ run f
 
 class CommandType a where
   commandValue :: [Value] -> Mpv -> a
@@ -178,7 +173,7 @@ class CommandType a where
 instance FromJSON r => CommandType (IO r) where
   commandValue args mpv = do
     wait <- newEmptyTMVarIO
-    atomically $ writeTBQueue (requests mpv) (L.reverse args, wait)
+    atomically $ writeTBQueue (requests mpv) (reverse args, wait)
     reply <- atomically $ readTMVar wait
     r <- expectE MpvIpcError reply
     -- HACK: round-trip converting '()' to 'Value' and back,
@@ -188,10 +183,10 @@ instance FromJSON r => CommandType (IO r) where
 instance (ToJSON a, CommandType c) => CommandType (a -> c) where
   commandValue args mpv a = commandValue (toJSON a : args) mpv
 
-command :: CommandType c => T.Text -> Mpv -> c
+command :: CommandType c => Text -> Mpv -> c
 command cmd = commandValue [toJSON cmd]
 
-loadfile :: Mpv -> T.Text -> IO ()
+loadfile :: Mpv -> Text -> IO ()
 loadfile = command "loadfile"
 
 getProperty :: FromJSON a => Mpv -> Prop -> IO a

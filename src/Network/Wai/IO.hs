@@ -10,14 +10,11 @@ module Network.Wai.IO
 import           Data.Aeson                     ( Value
                                                 , json'
                                                 )
-import qualified Data.ByteString               as B
 import           Data.ByteString.Builder        ( Builder
                                                 , byteString
                                                 , intDec
                                                 , lazyByteString
                                                 )
-import qualified Data.ByteString.Lazy          as LB
-import qualified Data.ByteString.Lazy.Char8    as LBC
 import           Data.Conduit.Attoparsec        ( sinkParser )
 import qualified Data.Conduit.Combinators      as C
 import           MpvChat.Prelude
@@ -37,17 +34,17 @@ import           Network.Wai                    ( Request
                                                 )
 
 newtype Event = Event
-  { eventData :: LB.ByteString
+  { eventData :: LByteString
   }
   deriving stock Show
 
 instance Default Event where
   def = Event ""
 
-requestSource :: MonadIO m => Request -> ConduitT i B.ByteString m ()
+requestSource :: MonadIO m => Request -> ConduitT i ByteString m ()
 requestSource req = do
   chunk <- liftIO $ getRequestBodyChunk req
-  unless (B.null chunk) $ do
+  unless (null chunk) $ do
     yield chunk
     requestSource req
 
@@ -68,5 +65,5 @@ responseSource s hs bs = responseStream s hs body where
 responseEvents :: ConduitT () Event IO () -> Response
 responseEvents evts = responseSource ok200 hs $ evts .| C.map fmt where
   hs = [(hContentType, "text/event-stream")]
-  fmt (Event d) = foldMap dat (LBC.split '\n' d) <> "\n" where
+  fmt (Event d) = foldMap dat (splitSeq "\n" d) <> "\n" where
     dat c = "data: " <> lazyByteString c <> "\n"

@@ -14,15 +14,10 @@ import           Control.Monad.ContT            ( contT_ )
 import           Control.Monad.RWS              ( asks
                                                 , tell
                                                 )
-import qualified Data.ByteString.Lazy          as LB
 import qualified Data.Conduit.Combinators      as C
-import qualified Data.HashMap.Strict           as HM
-import qualified Data.HashSet                  as HS
-import qualified Data.List                     as L
 import qualified Data.List.NonEmpty            as NE
 import           Data.Maybe                     ( fromJust )
 import qualified Data.SeekBuffer               as SB
-import qualified Data.Text                     as T
 import           Lucid.Base                     ( Html
                                                 , HtmlT
                                                 , renderBS
@@ -89,21 +84,22 @@ import           Network.Wai.Monad              ( runWai
                                                 , wai
                                                 )
 import           System.FilePath.Posix          ( takeDirectory )
+import qualified System.IO                     as S
 import           Text.Printf                    ( printf )
 import           UnliftIO.Environment           ( getExecutablePath )
 
-type Scope = T.Text
-type Emote = (Scope, T.Text)
-type Emotes = HM.HashMap T.Text Emote
-type Highlights = HashSet T.Text
-type Mentions = [T.Text]
+type Scope = Text
+type Emote = (Scope, Text)
+type Emotes = HashMap Text Emote
+type Highlights = HashSet Text
+type Mentions = [Text]
 type Fmt = HtmlT (RWS (Emotes, Highlights) Mentions ())
 
 data Comment = Comment
   { time :: Scientific
-  , html :: LB.ByteString
-  , user :: T.Text
-  , display_user :: T.Text
+  , html :: LByteString
+  , user :: Text
+  , display_user :: Text
   , mentions :: Mentions
   }
 
@@ -138,7 +134,7 @@ data Config = Config
   deriving stock Show
 
 bttv :: Scope -> [Bt.Emote] -> Emotes
-bttv s = fromList . fmap emote where
+bttv s = mapFromList . map emote where
   emote e = (Bt.code e, ("bttv " <> s, Bt.emoteUrl $ Bt.id e))
 
 bttvGlobal :: Bt.Global -> Emotes
@@ -150,13 +146,13 @@ bttvChannel = chan <> shared where
   shared = bttv "channel shared" . Bt.sharedEmotes
 
 ffz :: Fz.Channel -> Emotes
-ffz = fromList . fmap emote . (Fz.emoticons <=< HM.elems . Fz.sets) where
+ffz = mapFromList . map emote . (Fz.emoticons <=< toList . Fz.sets) where
   emote e = (Fz.name e, ("ffz channel", url)) where
     -- 2 (higher res image) not always available, so fallback to 1
-    url = fromJust $ asum $ (`HM.lookup` Fz.urls e) <$> [2, 1]
+    url = fromJust $ asum $ (`lookup` Fz.urls e) <$> [2, 1]
 
 loadEmotes :: MonadIO m => Tv.ChannelId -> m Emotes
-loadEmotes cid = liftIO $ fold <$> mapConcurrently id
+loadEmotes cid = liftIO $ fold <$> mapConcurrently identity
   [ bttvGlobal <$> Bt.getGlobal
   , bttvChannel <$> Bt.getChannel cid
   , ffz <$> Fz.getChannel cid
@@ -169,7 +165,7 @@ fmtComment cmt = asks snd >>= \hls -> do
     usr = Tv.commenter cmt
     nam = Tv.name usr
   li_
-    [ class_ $ bool "comment" "comment highlight" $ HS.member nam hls
+    [ class_ $ bool "comment" "comment highlight" $ member nam hls
     ] $ do
     a_
       [ class_ "icon"
@@ -191,19 +187,19 @@ fmtUser usr = div_ [class_ "details"] $ do
 fmtFragment :: Tv.Fragment -> Fmt ()
 fmtFragment Tv.Fragment { text = txt, emoticon = emo }
   | Just e <- emo = fmtEmote "twitch" txt $ Tv.emoteUrl $ Tv.emoticon_id e
-  | otherwise = fold $ L.intersperse " " $ fmtWord <$> T.split (== ' ') txt
+  | otherwise = fold $ intersperse " " $ fmtWord <$> splitElem ' ' txt
 
-fmtWord :: T.Text -> Fmt ()
+fmtWord :: Text -> Fmt ()
 fmtWord wor = asks fst >>= \emotes -> if
-  | Just (ori, url) <- HM.lookup wor emotes -> fmtEmote ori wor url
-  | Just ('@', nam) <- T.uncons wor -> do
+  | Just (ori, url) <- lookup wor emotes -> fmtEmote ori wor url
+  | Just ('@', nam) <- uncons wor -> do
       tell [nam]
       a_ [class_ "mention", href_ $ "/user/" <> nam] $ "@" <> toHtml nam
-  | Just (uriAuthority -> Just _) <- parseURI $ T.unpack wor ->
+  | Just (uriAuthority -> Just _) <- parseURI $ toList wor ->
       a_ [class_ "url", href_ wor] $ toHtml wor
   | otherwise -> toHtml wor
 
-fmtEmote :: T.Text -> T.Text -> T.Text -> Fmt ()
+fmtEmote :: Text -> Text -> Text -> Fmt ()
 fmtEmote ori txt url = img_
   [ class_ "emote"
   , src_ $ "https:" <> url
@@ -256,7 +252,7 @@ runMpvChat conf = evalContT $ do
   exePath <- getExecutablePath
   let installPath = takeDirectory $ takeDirectory exePath
 
-  let entry = putStrLn $ "server started on port " <> show (port conf)
+  let entry = S.putStrLn $ "server started on port " <> show (port conf)
       settings = defaultSettings
         & setHost "*6"
         & setPort (port conf)
@@ -282,7 +278,7 @@ runMpvChat conf = evalContT $ do
           ]
       app = asks pathInfo >>= \case
         [] -> page $ render $ take 500
-        ["user", usr] -> page $ render $ take 50 . L.filter p where
+        ["user", usr] -> page $ render $ take 50 . filter p where
           p c = user c == usr || display_user c == usr
         ["doc"] -> pure $ responsePlainStatus temporaryRedirect307
           [(hLocation, "/doc/all/index.html")]
@@ -297,7 +293,7 @@ runMpvChat conf = evalContT $ do
         writeTChan redraw ()
       append cs = atomically $ update $ play . _Just %~
         (latest .~ time (NE.last cs)) .
-        (comments %~ SB.append (NE.toList cs))
+        (comments %~ SB.append (toList cs))
       load vid = startTask taskLoad $ do
         atomically $ do
           update $ play ?~ def
