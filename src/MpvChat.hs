@@ -3,6 +3,7 @@
 
 module MpvChat
   ( Config(..)
+  , Tv.Auth(..)
   , runMpvChat
   ) where
 
@@ -57,7 +58,14 @@ import           Network.Mpv                    ( MpvError(MpvIpcError)
                                                 )
 import qualified Network.Twitch                as Tv
 import qualified Network.Twitch.Bttv           as Bt
+import qualified Network.Twitch.Channel
+import qualified Network.Twitch.Comment
+import qualified Network.Twitch.Emoticon
 import qualified Network.Twitch.Ffz            as Fz
+import qualified Network.Twitch.Fragment
+import qualified Network.Twitch.Message
+import qualified Network.Twitch.User
+import qualified Network.Twitch.Video
 import           Network.URI                    ( parseURI
                                                 , uriAuthority
                                                 )
@@ -159,35 +167,38 @@ loadEmotes cid = liftIO $ fold <$> mapConcurrently identity
   ]
 
 fmtComment :: Tv.Comment -> Fmt ()
-fmtComment cmt = asks snd >>= \hls -> do
-  let
-    msg = Tv.message cmt
-    usr = Tv.commenter cmt
-    nam = Tv.name usr
+fmtComment Tv.Comment
+  { message = Tv.Message { user_color, fragments }
+  , commenter = usr@Tv.User { name }
+  } = do
+  hls <- asks snd
   li_
-    [ class_ $ bool "comment" "comment highlight" $ member nam hls
+    [ class_ $ bool "comment" "comment highlight" $ member name hls
     ] $ do
     a_
       [ class_ "icon"
-      , style_ $ maybe "" ("background-color: " <>) $ Tv.user_color msg
-      , href_ $ "/user/" <> nam
-      ] $ fmtUser usr
+      , style_ $ maybe "" ("background-color: " <>) user_color
+      , href_ $ "/user/" <> name
+      ] $
+      fmtUser usr
     div_ [class_ "message"] $
-      traverse_ fmtFragment $ Tv.fragments msg
+      traverse_ fmtFragment fragments
 
-fmtUser :: Tv.Commenter -> Fmt ()
-fmtUser usr = div_ [class_ "details"] $ do
-  span_ [class_ "name"] $ toHtml $ Tv.display_name usr
-  for_ (Tv.bio usr) $ \b -> div_ $ do
-    "Bio: "
-    -- FIXME: find out why there are bad chars in twitch response,
-    -- which kill the output if not escaped to ascii
-    span_ [class_ "bio"] $ toHtml $ show b
+fmtUser :: Tv.User -> Fmt ()
+fmtUser Tv.User { display_name, bio } =
+  div_ [class_ "details"] $ do
+    span_ [class_ "name"] $ toHtml display_name
+    for_ bio $ \b -> div_ $ do
+      "Bio: "
+      -- FIXME: find out why there are bad chars in twitch response,
+      -- which kill the output if not escaped to ascii
+      span_ [class_ "bio"] $ toHtml $ show b
 
 fmtFragment :: Tv.Fragment -> Fmt ()
-fmtFragment Tv.Fragment { text = txt, emoticon = emo }
-  | Just e <- emo = fmtEmote "twitch" txt $ Tv.emoteUrl $ Tv.emoticon_id e
-  | otherwise = fold $ intersperse " " $ fmtWord <$> splitElem ' ' txt
+fmtFragment Tv.Fragment { text, emoticon }
+  | Just Tv.Emoticon { emoticon_id } <- emoticon =
+      fmtEmote "twitch" text $ Tv.emoteUrl emoticon_id
+  | otherwise = fold $ intersperse " " $ fmtWord <$> splitElem ' ' text
 
 fmtWord :: Text -> Fmt ()
 fmtWord wor = asks fst >>= \emotes -> if
@@ -207,16 +218,12 @@ fmtEmote ori txt url = img_
   ]
 
 format :: Emotes -> Highlights -> Tv.Comment -> Comment
-format es hls c = Comment
-  { html = h
-  , time = Tv.content_offset_seconds c
-  , user = Tv.name u
-  , display_user = Tv.display_name u
-  , mentions = m
+format es hls c@Tv.Comment
+  { commenter = Tv.User { name = user, display_name = display_user }
+  , content_offset_seconds = time
   }
-  where
-    u = Tv.commenter c
-    (h, m) = evalRWS (renderBST $ fmtComment c) (es, hls) ()
+  = Comment { html, time, user, display_user, mentions }
+  where (html, mentions) = evalRWS (renderBST $ fmtComment c) (es, hls) ()
 
 render :: ([Comment] -> [Comment]) -> ChatState -> Html ()
 render f st = case st ^. play of
@@ -298,8 +305,9 @@ runMpvChat conf = evalContT $ do
         atomically $ do
           update $ play ?~ def
           writeTVar seek True
-        video <- Tv.getVideo (auth conf) vid
-        emotes <- loadEmotes $ Tv._id $ Tv.channel video
+        Tv.Video { channel = Tv.Channel { _id = cid } }
+          <- Tv.getVideo (auth conf) vid
+        emotes <- loadEmotes cid
         runConduit $
           Tv.sourceComments (auth conf) vid
           .| C.mapE (format emotes $ highlights conf)

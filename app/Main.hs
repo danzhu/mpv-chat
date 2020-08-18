@@ -3,11 +3,11 @@ module Main
   ) where
 
 import           Control.Applicative            ( (<**>) )
-import           MpvChat                        ( Config(Config)
+import           MpvChat                        ( Auth(Auth)
+                                                , Config(Config)
                                                 , runMpvChat
                                                 )
 import           MpvChat.Prelude
-import qualified Network.Twitch                as Tv
 import           Options.Applicative            ( Parser
                                                 , ParserInfo
                                                 , auto
@@ -26,8 +26,8 @@ import           Options.Applicative            ( Parser
                                                 , value
                                                 )
 
-auth :: Parser Tv.Auth
-auth = Tv.Auth <$> cid where
+auth :: Parser Auth
+auth = Auth <$> cid where
   cid = option str $
     long "client-id" <>
     metavar "ID" <>

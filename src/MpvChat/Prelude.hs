@@ -205,7 +205,7 @@ import           Data.MonoTraversable.Unprefixed
                                                 , traverse_
                                                 )
 import           Data.Monoid                   as E
-                                                ( mempty )
+                                                ( Monoid(mempty) )
 import           Data.Ord                      as E
                                                 ( Ord(..)
                                                 , Ordering(EQ, GT, LT)
@@ -213,7 +213,7 @@ import           Data.Ord                      as E
 import           Data.Scientific               as E
                                                 ( Scientific )
 import           Data.Semigroup                as E
-                                                ( (<>) )
+                                                ( Semigroup((<>)) )
 import           Data.Sequences                as E
                                                 ( IsSequence(..)
                                                 , LazySequence(..)
@@ -251,8 +251,10 @@ import           Data.Traversable              as E
                                                 , for
                                                 )
 import           Data.Tuple                    as E
-                                                ( fst
+                                                ( curry
+                                                , fst
                                                 , snd
+                                                , uncurry
                                                 )
 import           Data.Void                     as E
                                                 ( Void
