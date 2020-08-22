@@ -33,7 +33,7 @@ rootUrl :: Text
 rootUrl = "https://api.frankerfacez.com/v1"
 
 channelUrl :: Tv.ChannelId -> Text
-channelUrl c = rootUrl <> "/room/id/" <> fromList (show c)
+channelUrl c = rootUrl <> "/room/id/" <> tshow c
 
 getChannel :: MonadIO m => Tv.ChannelId -> m Channel
 getChannel c = request (channelUrl c) [] []

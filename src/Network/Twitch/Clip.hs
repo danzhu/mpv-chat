@@ -1,6 +1,7 @@
 module Network.Twitch.Clip
   ( Clip(..)
   , Slug
+  , Thumbnails(..)
   , parseSlug
   ) where
 

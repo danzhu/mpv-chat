@@ -7,6 +7,7 @@ module Data.IdMap
   , remove
   ) where
 
+import qualified Data.Foldable
 import qualified MpvChat.Prelude               as P
 import           MpvChat.Prelude         hiding ( empty
                                                 , lookup
@@ -16,6 +17,12 @@ type Id = Int
 
 data IdMap a = IdMap Id (IntMap a)
   deriving stock Show
+  deriving anyclass (MonoFoldable)
+
+type instance Element (IdMap a) = a
+
+instance Foldable IdMap where
+  foldMap f (IdMap _ m) = foldMap f m
 
 empty :: Id -> IdMap a
 empty i = IdMap i mempty

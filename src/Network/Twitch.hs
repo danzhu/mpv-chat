@@ -57,7 +57,7 @@ rootUrl :: Text
 rootUrl = "https://api.twitch.tv/v5"
 
 videoUrl :: VideoId -> Text
-videoUrl vid = rootUrl <> "/videos/" <> fromList (show vid)
+videoUrl vid = rootUrl <> "/videos/" <> tshow vid
 
 commentsUrl :: VideoId -> Text
 commentsUrl vid = videoUrl vid <> "/comments"
@@ -66,7 +66,7 @@ emoteUrl :: Text -> Text
 emoteUrl i = "//static-cdn.jtvnw.net/emoticons/v1/" <> i <> "/2.0"
 
 clipUrl :: Slug -> Text
-clipUrl s = rootUrl <> "/clips/" <> fromList (show s)
+clipUrl s = rootUrl <> "/clips/" <> tshow s
 
 query :: (MonadIO m, FromJSON a) => Auth -> Text -> Query -> m a
 query auth url q = request url q [("Client-ID", clientId auth)]

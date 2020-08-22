@@ -19,6 +19,7 @@ import qualified Data.Conduit.Combinators      as C
 import qualified Data.List.NonEmpty            as NE
 import           Data.Maybe                     ( fromJust )
 import qualified Data.SeekBuffer               as SB
+import           Data.Text.IO                   ( putStrLn )
 import           Lucid.Base                     ( Html
                                                 , HtmlT
                                                 , renderBS
@@ -92,7 +93,6 @@ import           Network.Wai.Monad              ( runWai
                                                 , wai
                                                 )
 import           System.FilePath.Posix          ( takeDirectory )
-import qualified System.IO                     as S
 import           Text.Printf                    ( printf )
 import           UnliftIO.Environment           ( getExecutablePath )
 
@@ -259,7 +259,7 @@ runMpvChat conf = evalContT $ do
   exePath <- getExecutablePath
   let installPath = takeDirectory $ takeDirectory exePath
 
-  let entry = S.putStrLn $ "server started on port " <> show (port conf)
+  let entry = putStrLn $ "server started on port " <> tshow (port conf)
       settings = defaultSettings
         & setHost "*6"
         & setPort (port conf)

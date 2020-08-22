@@ -16,7 +16,9 @@ import           Text.Megaparsec.Error          ( errorBundlePretty )
 type Parser = Parsec Void Text
 
 newtype VideoId = VideoId Integer
-  deriving newtype (Eq, FromJSON, Hashable, Ord, Show)
+  deriving newtype (Eq, Hashable, Ord, Show)
+
+-- TODO: instance FromJSON VideoId
 
 newtype Video = Video
   { channel :: Channel

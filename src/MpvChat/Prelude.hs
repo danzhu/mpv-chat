@@ -15,6 +15,8 @@ module MpvChat.Prelude
   , map
   , sequence
   , undef
+  -- * Utility Functions
+  , tshow
   )
 where
 
@@ -356,3 +358,7 @@ sequence = sequenceA
 undef :: HasCallStack => a
 undef = undefined
 {-# WARNING undef "'undef' left in code" #-}
+
+-- | `Text`-returning `show`.
+tshow :: Show a => a -> Text
+tshow = fromList . show

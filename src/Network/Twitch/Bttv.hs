@@ -38,7 +38,7 @@ globalUrl :: Text
 globalUrl = rootUrl <> "/cached/emotes/global"
 
 channelUrl :: Tv.ChannelId -> Text
-channelUrl c = rootUrl <> "/cached/users/twitch/" <> fromList (show c)
+channelUrl c = rootUrl <> "/cached/users/twitch/" <> tshow c
 
 emoteUrl :: Text -> Text
 emoteUrl i = "//cdn.betterttv.net/emote/" <> i <> "/2x"
