@@ -15,6 +15,7 @@ import           Control.Monad.ContT            ( contT_ )
 import           Control.Monad.RWS              ( asks
                                                 , tell
                                                 )
+import           Data.Aeson                     ( encode )
 import qualified Data.Conduit.Combinators      as C
 import qualified Data.List.NonEmpty            as NE
 import           Data.Maybe                     ( fromJust )
@@ -22,17 +23,21 @@ import qualified Data.SeekBuffer               as SB
 import           Data.Text.IO                   ( putStrLn )
 import           Lucid.Base                     ( Html
                                                 , HtmlT
-                                                , renderBS
                                                 , renderBST
+                                                , renderText
                                                 , toHtml
                                                 , toHtmlRaw
                                                 )
 import           Lucid.Html5                    ( a_
+                                                , button_
                                                 , class_
+                                                , data_
                                                 , div_
+                                                , h3_
                                                 , href_
                                                 , img_
                                                 , li_
+                                                , p_
                                                 , pre_
                                                 , span_
                                                 , src_
@@ -41,17 +46,12 @@ import           Lucid.Html5                    ( a_
                                                 , ul_
                                                 )
 import           MpvChat.Prelude
-import           Network.HTTP.Types.Header      ( hContentType
-                                                , hLocation
-                                                )
-import           Network.HTTP.Types.Method      ( methodGet
-                                                , methodHead
-                                                )
-import           Network.HTTP.Types.Status      ( ok200
-                                                , temporaryRedirect307
+import           Network.HTTP.Types.Status      ( Status
+                                                , ok200
                                                 )
 import           Network.Mpv                    ( MpvError(MpvIpcError)
                                                 , getProperty
+                                                , loadfile
                                                 , newMpvClient
                                                 , observeEvent
                                                 , observeProperty
@@ -70,10 +70,12 @@ import qualified Network.Twitch.Video
 import           Network.URI                    ( parseURI
                                                 , uriAuthority
                                                 )
-import           Network.Wai                    ( pathInfo
-                                                , responseFile
+import           Network.Wai                    ( Application
+                                                , pathInfo
                                                 )
-import           Network.Wai.Application.Static ( appStatic )
+import           Network.Wai.Application.Static ( appFile
+                                                , appStatic
+                                                )
 import           Network.Wai.Handler.Warp       ( Port
                                                 , defaultSettings
                                                 , runSettings
@@ -82,18 +84,23 @@ import           Network.Wai.Handler.Warp       ( Port
                                                 , setPort
                                                 )
 import           Network.Wai.IO                 ( eventData
+                                                , requestBS
                                                 , responseEvents
                                                 , responsePlainStatus
+                                                , responseRedirect
                                                 )
 import           Network.Wai.Middleware.StaticRoute
                                                 ( routeAccept
-                                                , routeMethod
+                                                , routeGet
+                                                , routePost
                                                 )
-import           Network.Wai.Monad              ( runWai
+import           Network.Wai.Monad              ( WaiApp
+                                                , runWai
                                                 , wai
                                                 )
 import           System.FilePath.Posix          ( takeDirectory )
 import           Text.Printf                    ( printf )
+import           UnliftIO.Concurrent            ( threadDelay )
 import           UnliftIO.Environment           ( getExecutablePath )
 
 type Scope = Text
@@ -132,6 +139,13 @@ makeLenses ''ChatState
 
 instance Default ChatState where
   def = ChatState Nothing 0
+
+data View = View
+  { title :: Text
+  , content :: LText
+  }
+  deriving stock (Generic, Show)
+  deriving anyclass ToJSON
 
 data Config = Config
   { ipcPath :: FilePath
@@ -221,12 +235,12 @@ format :: Emotes -> Highlights -> Tv.Comment -> Comment
 format es hls c@Tv.Comment
   { commenter = Tv.User { name = user, display_name = display_user }
   , content_offset_seconds = time
-  }
-  = Comment { html, time, user, display_user, mentions }
+  } =
+  Comment { html, time, user, display_user, mentions }
   where (html, mentions) = evalRWS (renderBST $ fmtComment c) (es, hls) ()
 
-render :: ([Comment] -> [Comment]) -> ChatState -> Html ()
-render f st = case st ^. play of
+renderComments :: ([Comment] -> [Comment]) -> ChatState -> Html ()
+renderComments f st = case st ^. play of
   Nothing -> pre_ "idle"
   Just (Play cms don cur lat) -> do
     let int = round :: Scientific -> Int
@@ -239,9 +253,29 @@ render f st = case st ^. play of
       ]
     if not don && null (SB.future cms)
       then pre_ "buffering..."
-      else ul_ [class_ "chat"] $ do
-        let recent = f $ SB.past cms
-        toHtmlRaw $ foldMap html recent
+      else ul_ [class_ "comments"] $
+        toHtmlRaw $ foldMap html $ f $ SB.past cms
+
+renderVideos :: [Tv.Video] -> Html ()
+renderVideos vs =
+  ul_ [class_ "videos"] $
+    for_ vs $ \Tv.Video
+      { title
+      , views
+      , url
+      , game
+      , length = len
+      , preview = Tv.Images { large }
+      } ->
+      li_ [class_ "video"] $ do
+        img_ [class_ "preview", src_ large]
+        div_ [class_ "meta"] $ do
+          div_ [class_ "info"] $ do
+            h3_ [class_ "title"] $ toHtml title
+            p_ $ toHtml $ tshow len <> " secs, " <> tshow views <> " views"
+            for_ game $ p_ [class_ "game"] . toHtml
+          div_ [class_ "actions"] $
+            button_ [class_ "load", data_ "post" "/loadfile", data_ "body" url] "|>"
 
 reseek :: ChatState -> ChatState
 reseek st = play . _Just %~ upd $ st where
@@ -249,8 +283,33 @@ reseek st = play . _Just %~ upd $ st where
     adv c = time c < t
     t = p ^. current - st ^. delay
 
+err :: Status -> Application
+err stat _ res = res $ responsePlainStatus stat []
+
+page :: ConduitT () View IO () -> WaiApp
+page vs = wai $ routeGet err $ routeAccept err
+  [ ("text/html", appFile err "res/page.html")
+  , ("text/event-stream", str)
+  ]
+  where
+    str _ res = res $ responseEvents $ vs .| C.map enc
+    enc v = def { eventData = encode v }
+
+videos :: MonadIO m => Tv.Auth -> Text -> ConduitT i View m ()
+videos auth chan = do
+  h <- liftIO $ case Tv.parseChannelId chan of
+    Left e -> pure $ "invalid channel id: " <> toHtml e
+    Right cid -> do
+      vs <- runConduit $
+        Tv.getChannelVideos auth cid
+        .| C.concat
+        .| C.sinkList
+      pure $ renderVideos vs
+  yield $ View chan $ renderText h
+  threadDelay maxBound
+
 runMpvChat :: Config -> IO ()
-runMpvChat conf = evalContT $ do
+runMpvChat Config { ipcPath, auth, port, highlights } = evalContT $ do
   chatState <- newTVarIO def
   active <- newTVarIO False
   seek <- newTVarIO False
@@ -259,43 +318,37 @@ runMpvChat conf = evalContT $ do
   exePath <- getExecutablePath
   let installPath = takeDirectory $ takeDirectory exePath
 
-  let entry = putStrLn $ "server started on port " <> tshow (port conf)
+  mpv <- newMpvClient
+  taskLoad <- ContT withEmptyTask
+
+  let entry = putStrLn $ "server started on port " <> tshow port
       settings = defaultSettings
         & setHost "*6"
-        & setPort (port conf)
+        & setPort port
         & setBeforeMainLoop entry
-      err stat _ res = res $ responsePlainStatus stat []
-      pageHtml = pure $ responseFile ok200 hs "res/page.html" Nothing where
-        hs = [(hContentType, "text/html")]
-      pageEvents f = pure $ responseEvents $ do
+      messages f = do
         red <- atomically $ dupTChan redraw
         forever $ do
           st <- readTVarIO chatState
-          yield def { eventData = renderBS $ f st }
+          yield $ View "Chat" $ renderText $ renderComments f st
           atomically $ readTChan red
-      page f = wai p where
-        p = routeMethod err
-          [ (methodGet, get)
-          -- TODO: manually check that no body is sent
-          , (methodHead, get)
-          ]
-        get = routeAccept err
-          [ ("text/html", runWai pageHtml)
-          , ("text/event-stream", runWai $ pageEvents f)
-          ]
       app = asks pathInfo >>= \case
-        [] -> page $ render $ take 500
-        ["user", usr] -> page $ render $ take 50 . filter p where
+        -- chat messages
+        [] -> page $ messages $ take 500
+        ["user", usr] -> page $ messages $ take 50 . filter p where
           p c = user c == usr || display_user c == usr
-        ["doc"] -> pure $ responsePlainStatus temporaryRedirect307
-          [(hLocation, "/doc/all/index.html")]
+        ["channel", chan] -> page $ videos auth chan
+        -- actions
+        ["loadfile"] -> wai $ routePost err $ runWai $ do
+          url <- join $ asks requestBS
+          liftIO $ loadfile mpv $ decodeUtf8 url
+          pure $ responsePlainStatus ok200 []
+        -- docs
+        ["doc"] -> pure $ responseRedirect "/doc/all/index.html"
         "doc" : _ -> wai $ appStatic err installPath
+        -- static
         _ -> wai $ appStatic err "public"
-  contT_ $ withTask_ $ runSettings settings $ runWai app
-
-  mpv <- newMpvClient
-  taskLoad <- ContT withEmptyTask
-  let update f = do
+      update f = do
         modifyTVar' chatState $ reseek . f
         writeTChan redraw ()
       append cs = atomically $ update $ play . _Just %~
@@ -306,11 +359,11 @@ runMpvChat conf = evalContT $ do
           update $ play ?~ def
           writeTVar seek True
         Tv.Video { channel = Tv.Channel { _id = cid } }
-          <- Tv.getVideo (auth conf) vid
+          <- Tv.getVideo auth vid
         emotes <- loadEmotes cid
         runConduit $
-          Tv.sourceComments (auth conf) vid
-          .| C.mapE (format emotes $ highlights conf)
+          Tv.getVideoComments auth vid
+          .| C.mapE (format emotes highlights)
           .| C.mapM_ append
         atomically $ update $ play . _Just . done .~ True
       unload = startTask taskLoad $
@@ -326,6 +379,8 @@ runMpvChat conf = evalContT $ do
         observeProperty mpv "sub-delay" $ \d ->
           atomically $ update $ delay .~ d
         observeEvent mpv "seek" $ atomically $ writeTVar seek True
+
+  contT_ $ withTask_ $ runSettings settings $ runWai app
   contT_ $ withTask_ $ forever $ do
     timeout <- registerDelay 1_000_000
     atomically $ do
@@ -339,4 +394,4 @@ runMpvChat conf = evalContT $ do
         unavail _ = Nothing
         upd t = atomically $ update $ play . _Just . current .~ t
     either pure upd =<< tryJust unavail (getProperty mpv "playback-time")
-  lift $ runMpv mpv (ipcPath conf) `concurrently_` setup
+  lift $ runMpv mpv ipcPath `concurrently_` setup

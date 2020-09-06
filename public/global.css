@@ -4,7 +4,41 @@ body {
     font-family: sans-serif;
 }
 
-.chat {
+.videos {
+    display: flex;
+    flex-wrap: wrap;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.video {
+    margin: 8px;
+    width: 320px;
+}
+
+.preview {
+    width: 100%;
+}
+
+.meta {
+    display: flex;
+}
+
+.info {
+    flex-grow: 1;
+    min-width: 0;
+}
+
+.info > * {
+    margin: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: inherit;
+}
+
+.comments {
     padding: 0;
     list-style: none;
 }

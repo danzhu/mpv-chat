@@ -1,6 +1,8 @@
 module Network.Wai.Middleware.StaticRoute
   ( routeAccept
+  , routeGet
   , routeMethod
+  , routePost
   ) where
 
 import           MpvChat.Prelude
@@ -11,7 +13,10 @@ import           Network.HTTP.Types.Header      ( hAccept
                                                 , hAllow
                                                 )
 import           Network.HTTP.Types.Method      ( Method
+                                                , methodGet
+                                                , methodHead
                                                 , methodOptions
+                                                , methodPost
                                                 )
 import           Network.HTTP.Types.Status      ( Status
                                                 , methodNotAllowed405
@@ -38,3 +43,13 @@ routeAccept :: (Status -> Application) -> [(MediaType, Application)] -> Applicat
 routeAccept err apps = join $ fromMaybe none . mapAccept apps . accept where
   none = err notAcceptable406
   accept = fromMaybe "*/*" . lookup hAccept . requestHeaders
+
+routeGet :: (Status -> Application) -> Application -> Application
+routeGet err app = routeMethod err
+  [ (methodGet, app)
+  -- TODO: manually check that no body is sent
+  , (methodHead, app)
+  ]
+
+routePost :: (Status -> Application) -> Application -> Application
+routePost err app = routeMethod err [(methodPost, app)]

@@ -212,6 +212,8 @@ import           Data.Ord                      as E
                                                 ( Ord(..)
                                                 , Ordering(EQ, GT, LT)
                                                 )
+import           Data.Proxy                    as E
+                                                ( Proxy(Proxy) )
 import           Data.Scientific               as E
                                                 ( Scientific )
 import           Data.Semigroup                as E

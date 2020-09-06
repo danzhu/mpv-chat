@@ -1,20 +1,15 @@
 module Network.Wai.Application.Static
-  ( appStatic
+  ( appFile
+  , appStatic
   ) where
 
 import           MpvChat.Prelude
 import           Network.HTTP.Media.Accept      ( parseAccept )
-import           Network.HTTP.Types.Header      ( hContentType
-                                                , hLocation
-                                                )
-import           Network.HTTP.Types.Method      ( methodGet
-                                                , methodHead
-                                                )
+import           Network.HTTP.Types.Header      ( hContentType )
 import           Network.HTTP.Types.Status      ( Status
                                                 , forbidden403
                                                 , notFound404
                                                 , ok200
-                                                , temporaryRedirect307
                                                 )
 import           Network.Mime                   ( FileName
                                                 , MimeType
@@ -26,36 +21,35 @@ import           Network.Wai                    ( Application
                                                 , responseFile
                                                 )
 import           Network.Wai.Handler.Warp       ( getFileInfo )
-import           Network.Wai.IO                 ( responsePlainStatus )
+import           Network.Wai.IO                 ( responseRedirect )
 import           Network.Wai.Middleware.StaticRoute
                                                 ( routeAccept
-                                                , routeMethod
+                                                , routeGet
                                                 )
-import           System.FilePath                ( joinPath )
+import           System.FilePath                ( takeFileName
+                                                , joinPath
+                                                )
 
 mimeByExt :: FileName -> Maybe MimeType
 mimeByExt = asum . map (`lookup` defaultMimeMap) . fileNameExtensions
 
+appFile :: (Status -> Application) -> FilePath -> Application
+appFile err fp = case mimeByExt $ fromList $ takeFileName fp of
+  Just mime@(parseAccept -> Just media) ->
+    routeAccept err [(media, file [(hContentType, mime)])]
+  _ -> file []
+  where
+    file hs req res = try (getFileInfo req fp) >>= \case
+      Left (_ :: IOException) -> err notFound404 req res
+      Right _ -> res $ responseFile ok200 hs fp Nothing
+
 appStatic :: (Status -> Application) -> FilePath -> Application
-appStatic err dir = app where
-  app = routeMethod err
-    [ (methodGet, get)
-    , (methodHead, get)
-    ]
-  get req res
-    | any (isPrefixOf ".") path = err forbidden403 req res
-    | null fn = do
-        let hs = [(hLocation, "index.html")]
-        -- TODO: extract responsePlainStatus
-        res $ responsePlainStatus temporaryRedirect307 hs
-    | Just mime@(parseAccept -> Just media) <- mimeByExt fn =
-        routeAccept err [(media, file [(hContentType, mime)] fp)] req res
-    | otherwise = file [] fp req res
-    where
-      path = pathInfo req
-      -- due to Monoid instance, empty path returns empty string
-      fn = path ^. _last
-      fp = joinPath $ dir : map toList path
-  file hs fp req res = try (getFileInfo req fp) >>= \case
-    Left (_ :: IOException) -> err notFound404 req res
-    Right _ -> res $ responseFile ok200 hs fp Nothing
+appStatic err dir req res
+  | any (isPrefixOf ".") path = err forbidden403 req res
+  | null fn = res $ responseRedirect "index.html"
+  | otherwise = routeGet err (appFile err fp) req res
+  where
+    path = pathInfo req
+    -- due to Monoid instance, empty path returns empty string
+    fn = path ^. _last
+    fp = joinPath $ dir : map toList path

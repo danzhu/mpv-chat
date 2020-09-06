@@ -1,5 +1,6 @@
 module Network.Twitch.Video
-  ( Video(..)
+  ( Images(..)
+  , Video(..)
   , VideoId
   , parseVideoId
   ) where
@@ -20,8 +21,23 @@ newtype VideoId = VideoId Integer
 
 -- TODO: instance FromJSON VideoId
 
-newtype Video = Video
-  { channel :: Channel
+data Video = Video
+  { title :: Text
+  , views :: Int
+  , url :: Text
+  , game :: Maybe Text
+  , length :: Int
+  , preview :: Images Text
+  , channel :: Channel
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (FromJSON, Hashable)
+
+data Images a = Images
+  { small :: a
+  , medium :: a
+  , large :: a
+  , template :: a
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (FromJSON, Hashable)

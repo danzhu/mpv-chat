@@ -1,3 +1,5 @@
+{-# LANGUAGE DataKinds #-}
+
 module Network.Twitch
   ( Auth(..)
   , Channel(..)
@@ -6,20 +8,32 @@ module Network.Twitch
   , Comment(..)
   , Emoticon(..)
   , Fragment(..)
+  , Images(..)
   , Message(..)
   , Slug
   , User(..)
   , Video(..)
   , VideoId
   , emoteUrl
+  , getChannelVideos
   , getClip
   , getVideo
+  , getVideoComments
   , parseChannelId
   , parseSlug
   , parseVideoId
-  , sourceComments
   ) where
 
+import           Data.Aeson                     ( parseJSON
+                                                , withObject
+                                                , (.:)
+                                                , (.:?)
+                                                )
+import qualified Data.Conduit.Combinators      as C
+import           GHC.TypeLits                   ( KnownSymbol
+                                                , Symbol
+                                                , symbolVal
+                                                )
 import           MpvChat.Prelude
 import           Network.HTTP.Types             ( Query )
 import           Network.Request                ( request )
@@ -36,7 +50,8 @@ import           Network.Twitch.Emoticon        ( Emoticon(Emoticon) )
 import           Network.Twitch.Fragment        ( Fragment(Fragment) )
 import           Network.Twitch.Message         ( Message(Message) )
 import           Network.Twitch.User            ( User(User) )
-import           Network.Twitch.Video           ( Video(Video)
+import           Network.Twitch.Video           ( Images(Images)
+                                                , Video(Video)
                                                 , VideoId
                                                 , parseVideoId
                                                 )
@@ -46,15 +61,33 @@ newtype Auth = Auth
   }
   deriving stock Show
 
-data Comments = Comments
-  { comments :: NonEmpty Comment
-  , _next    :: Maybe Text
+-- FIXME: empty result is likely possible,
+-- when offset = length and no results in paged
+-- TODO: DataKinds is overkill,
+-- either infer key from object keys,
+-- or don't use FromJSON and manually convert from Value
+data Paged (n :: Symbol) a = Paged
+  { items :: NonEmpty a
+  , _next :: Maybe Text
   }
-  deriving stock (Generic, Show)
-  deriving anyclass FromJSON
+  deriving stock Show
+
+instance (KnownSymbol n, FromJSON a) => FromJSON (Paged n a) where
+  parseJSON = withObject "Paged" $ \v -> Paged
+    <$> v .: fromList (symbolVal @n Proxy)
+    <*> v .:? "_next"
+
+emoteUrl :: Text -> Text
+emoteUrl i = "//static-cdn.jtvnw.net/emoticons/v1/" <> i <> "/2.0"
 
 rootUrl :: Text
 rootUrl = "https://api.twitch.tv/v5"
+
+channelUrl :: ChannelId -> Text
+channelUrl cid = rootUrl <> "/channels/" <> tshow cid
+
+videosUrl :: ChannelId -> Text
+videosUrl cid = channelUrl cid <> "/videos"
 
 videoUrl :: VideoId -> Text
 videoUrl vid = rootUrl <> "/videos/" <> tshow vid
@@ -62,14 +95,38 @@ videoUrl vid = rootUrl <> "/videos/" <> tshow vid
 commentsUrl :: VideoId -> Text
 commentsUrl vid = videoUrl vid <> "/comments"
 
-emoteUrl :: Text -> Text
-emoteUrl i = "//static-cdn.jtvnw.net/emoticons/v1/" <> i <> "/2.0"
-
 clipUrl :: Slug -> Text
 clipUrl s = rootUrl <> "/clips/" <> tshow s
 
-query :: (MonadIO m, FromJSON a) => Auth -> Text -> Query -> m a
+query :: (FromJSON a, MonadIO m) => Auth -> Text -> Query -> m a
 query auth url q = request url q [("Client-ID", clientId auth)]
+
+getOffsetPaged ::
+  forall n a m proxy i.
+  (KnownSymbol n, FromJSON a, MonadIO m) =>
+  proxy n -> Int -> Auth -> Text -> ConduitT i (NonEmpty a) m ()
+getOffsetPaged _ limit auth url =
+  C.yieldMany [0, limit ..]
+  .| C.mapM fetch
+  .| C.takeWhile full
+  where
+    fetch off = items <$> query @(Paged n a) auth url
+      [ ("limit", Just $ encodeUtf8 $ tshow limit)
+      , ("offset", Just $ encodeUtf8 $ tshow off)
+      ]
+    full xs = length xs == limit
+
+getCursorPaged ::
+  forall n a m proxy i.
+  (KnownSymbol n, FromJSON a, MonadIO m) =>
+  proxy n -> Auth -> Text -> ConduitT i (NonEmpty a) m ()
+getCursorPaged _ auth url = fetch "" where
+  fetch cur = do
+    Paged xs nxt <- query @(Paged n a) auth url
+      [ ("cursor", Just $ encodeUtf8 cur)
+      ]
+    yield xs
+    for_ nxt fetch
 
 getVideo :: MonadIO m => Auth -> VideoId -> m Video
 getVideo auth vid = query auth (videoUrl vid) []
@@ -77,9 +134,10 @@ getVideo auth vid = query auth (videoUrl vid) []
 getClip :: MonadIO m => Auth -> Slug -> m Clip
 getClip auth slug = query auth (clipUrl slug) []
 
-sourceComments :: MonadIO m => Auth -> VideoId -> ConduitT i (NonEmpty Comment) m ()
-sourceComments auth vid = fetch "" where
-  fetch cur = do
-    cs <- query auth (commentsUrl vid) [("cursor", Just $ encodeUtf8 cur)]
-    yield $ comments cs
-    traverse_ fetch $ _next cs
+getChannelVideos ::
+  MonadIO m => Auth -> ChannelId -> ConduitT i (NonEmpty Video) m ()
+getChannelVideos auth = getOffsetPaged @"videos" Proxy 100 auth . videosUrl
+
+getVideoComments ::
+  MonadIO m => Auth -> VideoId -> ConduitT i (NonEmpty Comment) m ()
+getVideoComments auth = getCursorPaged @"comments" Proxy auth . commentsUrl

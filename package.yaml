@@ -13,6 +13,7 @@ default-extensions:
 - OverloadedStrings
 - ScopedTypeVariables
 - TupleSections
+- TypeApplications
 - TypeFamilies
 - ViewPatterns
 
