@@ -29,7 +29,6 @@ import           Data.Aeson                     ( parseJSON
                                                 , (.:)
                                                 , (.:?)
                                                 )
-import qualified Data.Conduit.Combinators      as C
 import           GHC.TypeLits                   ( KnownSymbol
                                                 , Symbol
                                                 , symbolVal
@@ -105,16 +104,14 @@ getOffsetPaged ::
   forall n a m proxy i.
   (KnownSymbol n, FromJSON a, MonadIO m) =>
   proxy n -> Int -> Auth -> Text -> ConduitT i (NonEmpty a) m ()
-getOffsetPaged _ limit auth url =
-  C.yieldMany [0, limit ..]
-  .| C.mapM fetch
-  .| C.takeWhile full
-  where
-    fetch off = items <$> query @(Paged n a) auth url
+getOffsetPaged _ limit auth url = fetch 0 where
+  fetch off = do
+    Paged xs _ <- query @(Paged n a) auth url
       [ ("limit", Just $ encodeUtf8 $ tshow limit)
       , ("offset", Just $ encodeUtf8 $ tshow off)
       ]
-    full xs = length xs == limit
+    yield xs
+    when (length xs == limit) $ fetch $ off + limit
 
 getCursorPaged ::
   forall n a m proxy i.
