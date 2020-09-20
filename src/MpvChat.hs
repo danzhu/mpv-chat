@@ -17,7 +17,6 @@ import           Control.Monad.RWS              ( asks
                                                 )
 import           Data.Aeson                     ( encode )
 import qualified Data.Conduit.Combinators      as C
-import qualified Data.List.NonEmpty            as NE
 import           Data.Maybe                     ( fromJust )
 import qualified Data.SeekBuffer               as SB
 import           Data.Text.IO                   ( putStrLn )
@@ -271,7 +270,7 @@ renderVideos vs =
         img_ [class_ "preview", src_ large]
         div_ [class_ "meta"] $ do
           div_ [class_ "info"] $ do
-            h3_ [class_ "title"] $ toHtml title
+            h3_ [class_ "title", title_ title] $ toHtml title
             p_ $ toHtml $ tshow len <> " secs, " <> tshow views <> " views"
             for_ game $ p_ [class_ "game"] . toHtml
           div_ [class_ "actions"] $
@@ -295,17 +294,24 @@ page vs = wai $ routeGet err $ routeAccept err
     str _ res = res $ responseEvents $ vs .| C.map enc
     enc v = def { eventData = encode v }
 
+follows :: MonadIO m => Highlights -> ConduitT i View m ()
+follows hls = do
+  yield $ View "Follows" $ renderText $
+    ul_ [class_ "follows"] $
+      for_ hls $ \h ->
+        li_ [class_ "follow"] $
+          a_ [href_ $ "/channel/" <> h] $ toHtml h
+  threadDelay maxBound
+
 videos :: MonadIO m => Tv.Auth -> Text -> ConduitT i View m ()
-videos auth chan = do
-  h <- liftIO $ case Tv.parseChannelId chan of
-    Left e -> pure $ "invalid channel id: " <> toHtml e
-    Right cid -> do
-      vs <- runConduit $
-        Tv.getChannelVideos auth cid
-        .| C.concat
-        .| C.sinkList
-      pure $ renderVideos vs
-  yield $ View chan $ renderText h
+videos auth name = do
+  Tv.User { _id, display_name } <- liftIO $ Tv.getUserByName auth name
+  let cid = Tv.userChannel _id
+  vs <- liftIO $ runConduit $
+    Tv.getChannelVideos auth cid
+    .| C.concat
+    .| C.sinkList
+  yield $ View display_name $ renderText $ renderVideos vs
   threadDelay maxBound
 
 runMpvChat :: Config -> IO ()
@@ -337,6 +343,7 @@ runMpvChat Config { ipcPath, auth, port, highlights } = evalContT $ do
         [] -> page $ messages $ take 500
         ["user", usr] -> page $ messages $ take 50 . filter p where
           p c = user c == usr || display_user c == usr
+        ["follows"] -> page $ follows highlights
         ["channel", chan] -> page $ videos auth chan
         -- actions
         ["loadfile"] -> wai $ routePost err $ runWai $ do
@@ -352,7 +359,7 @@ runMpvChat Config { ipcPath, auth, port, highlights } = evalContT $ do
         modifyTVar' chatState $ reseek . f
         writeTChan redraw ()
       append cs = atomically $ update $ play . _Just %~
-        (latest .~ time (NE.last cs)) .
+        (latest %~ \t -> maybe t time $ cs ^? _last) .
         (comments %~ SB.append (toList cs))
       load vid = startTask taskLoad $ do
         atomically $ do

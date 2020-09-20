@@ -42,6 +42,7 @@ import           Control.Concurrent.STM.TVar   as E
                                                 ( stateTVar )
 import           Control.Monad                 as E
                                                 ( Monad((>>=))
+                                                , MonadFail(fail)
                                                 , forever
                                                 , guard
                                                 , join
@@ -289,6 +290,7 @@ import           Lens.Micro                    as E
                                                 , (.~)
                                                 , (?~)
                                                 , (^.)
+                                                , (^?)
                                                 , _Just
                                                 , _last
                                                 )

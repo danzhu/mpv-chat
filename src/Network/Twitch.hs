@@ -12,16 +12,19 @@ module Network.Twitch
   , Message(..)
   , Slug
   , User(..)
+  , UserId
   , Video(..)
   , VideoId
   , emoteUrl
   , getChannelVideos
   , getClip
+  , getUserByName
   , getVideo
   , getVideoComments
   , parseChannelId
   , parseSlug
   , parseVideoId
+  , userChannel
   ) where
 
 import           Data.Aeson                     ( parseJSON
@@ -39,6 +42,7 @@ import           Network.Request                ( request )
 import           Network.Twitch.Channel         ( Channel(Channel)
                                                 , ChannelId
                                                 , parseChannelId
+                                                , userChannel
                                                 )
 import           Network.Twitch.Clip            ( Slug
                                                 , Clip(Clip)
@@ -48,7 +52,9 @@ import           Network.Twitch.Comment         ( Comment(Comment) )
 import           Network.Twitch.Emoticon        ( Emoticon(Emoticon) )
 import           Network.Twitch.Fragment        ( Fragment(Fragment) )
 import           Network.Twitch.Message         ( Message(Message) )
-import           Network.Twitch.User            ( User(User) )
+import           Network.Twitch.User            ( User(User)
+                                                , UserId
+                                                )
 import           Network.Twitch.Video           ( Images(Images)
                                                 , Video(Video)
                                                 , VideoId
@@ -60,13 +66,11 @@ newtype Auth = Auth
   }
   deriving stock Show
 
--- FIXME: empty result is likely possible,
--- when offset = length and no results in paged
 -- TODO: DataKinds is overkill,
 -- either infer key from object keys,
 -- or don't use FromJSON and manually convert from Value
 data Paged (n :: Symbol) a = Paged
-  { items :: NonEmpty a
+  { items :: [a]
   , _next :: Maybe Text
   }
   deriving stock Show
@@ -81,6 +85,9 @@ emoteUrl i = "//static-cdn.jtvnw.net/emoticons/v1/" <> i <> "/2.0"
 
 rootUrl :: Text
 rootUrl = "https://api.twitch.tv/v5"
+
+userUrl :: Text
+userUrl = rootUrl <> "/users"
 
 channelUrl :: ChannelId -> Text
 channelUrl cid = rootUrl <> "/channels/" <> tshow cid
@@ -103,7 +110,7 @@ query auth url q = request url q [("Client-ID", clientId auth)]
 getOffsetPaged ::
   forall n a m proxy i.
   (KnownSymbol n, FromJSON a, MonadIO m) =>
-  proxy n -> Int -> Auth -> Text -> ConduitT i (NonEmpty a) m ()
+  proxy n -> Int -> Auth -> Text -> ConduitT i [a] m ()
 getOffsetPaged _ limit auth url = fetch 0 where
   fetch off = do
     Paged xs _ <- query @(Paged n a) auth url
@@ -116,7 +123,7 @@ getOffsetPaged _ limit auth url = fetch 0 where
 getCursorPaged ::
   forall n a m proxy i.
   (KnownSymbol n, FromJSON a, MonadIO m) =>
-  proxy n -> Auth -> Text -> ConduitT i (NonEmpty a) m ()
+  proxy n -> Auth -> Text -> ConduitT i [a] m ()
 getCursorPaged _ auth url = fetch "" where
   fetch cur = do
     Paged xs nxt <- query @(Paged n a) auth url
@@ -125,6 +132,13 @@ getCursorPaged _ auth url = fetch "" where
     yield xs
     for_ nxt fetch
 
+getUserByName :: (MonadIO m, MonadFail m) => Auth -> Text -> m User
+getUserByName auth name = do
+  Paged [u] _ <- query @(Paged "users" User) auth userUrl
+    [ ("login", Just $ encodeUtf8 name)
+    ]
+  pure u
+
 getVideo :: MonadIO m => Auth -> VideoId -> m Video
 getVideo auth vid = query auth (videoUrl vid) []
 
@@ -132,9 +146,9 @@ getClip :: MonadIO m => Auth -> Slug -> m Clip
 getClip auth slug = query auth (clipUrl slug) []
 
 getChannelVideos ::
-  MonadIO m => Auth -> ChannelId -> ConduitT i (NonEmpty Video) m ()
+  MonadIO m => Auth -> ChannelId -> ConduitT i [Video] m ()
 getChannelVideos auth = getOffsetPaged @"videos" Proxy 100 auth . videosUrl
 
 getVideoComments ::
-  MonadIO m => Auth -> VideoId -> ConduitT i (NonEmpty Comment) m ()
+  MonadIO m => Auth -> VideoId -> ConduitT i [Comment] m ()
 getVideoComments auth = getCursorPaged @"comments" Proxy auth . commentsUrl
