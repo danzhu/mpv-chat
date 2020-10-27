@@ -19,6 +19,7 @@ import           Data.Aeson                     ( encode )
 import qualified Data.Conduit.Combinators      as C
 import           Data.Maybe                     ( fromJust )
 import qualified Data.SeekBuffer               as SB
+import           Data.String                    ( IsString )
 import           Data.Text.IO                   ( putStrLn )
 import           Lucid.Base                     ( Html
                                                 , HtmlT
@@ -32,6 +33,7 @@ import           Lucid.Html5                    ( a_
                                                 , class_
                                                 , data_
                                                 , div_
+                                                , h1_
                                                 , h3_
                                                 , href_
                                                 , img_
@@ -102,8 +104,9 @@ import           Text.Printf                    ( printf )
 import           UnliftIO.Concurrent            ( threadDelay )
 import           UnliftIO.Environment           ( getExecutablePath )
 
-type Scope = Text
-type Emote = (Scope, Text)
+newtype Scope = Scope Text
+  deriving newtype IsString
+data Emote = Emote Scope Text
 type Emotes = HashMap Text Emote
 type Highlights = HashSet Text
 type Mentions = [Text]
@@ -156,21 +159,21 @@ data Config = Config
 
 bttv :: Scope -> [Bt.Emote] -> Emotes
 bttv s = mapFromList . map emote where
-  emote e = (Bt.code e, ("bttv " <> s, Bt.emoteUrl $ Bt.id e))
+  emote Bt.Emote { code, id } = (code, Emote s $ Bt.emoteUrl id)
 
 bttvGlobal :: Bt.Global -> Emotes
-bttvGlobal = bttv "global"
+bttvGlobal = bttv "bttv global"
 
 bttvChannel :: Bt.Channel -> Emotes
 bttvChannel = chan <> shared where
-  chan = bttv "channel" . Bt.channelEmotes
-  shared = bttv "channel shared" . Bt.sharedEmotes
+  chan = bttv "bttv channel" . Bt.channelEmotes
+  shared = bttv "bttv shared" . Bt.sharedEmotes
 
 ffz :: Fz.Channel -> Emotes
-ffz = mapFromList . map emote . (Fz.emoticons <=< toList . Fz.sets) where
-  emote e = (Fz.name e, ("ffz channel", url)) where
+ffz = mapFromList . map emote . (Fz.emoticons <=< toList) . Fz.sets where
+  emote Fz.Emote { name, urls } = (name, Emote "ffz channel" url) where
     -- 2 (higher res image) not always available, so fallback to 1
-    url = fromJust $ asum $ (`lookup` Fz.urls e) <$> [2, 1]
+    url = fromJust $ asum $ (`lookup` urls) <$> [2, 1]
 
 loadEmotes :: MonadIO m => Tv.ChannelId -> m Emotes
 loadEmotes cid = liftIO $ fold <$> mapConcurrently identity
@@ -215,7 +218,7 @@ fmtFragment Tv.Fragment { text, emoticon }
 
 fmtWord :: Text -> Fmt ()
 fmtWord wor = asks fst >>= \emotes -> if
-  | Just (ori, url) <- lookup wor emotes -> fmtEmote ori wor url
+  | Just (Emote ori url) <- lookup wor emotes -> fmtEmote ori wor url
   | Just ('@', nam) <- uncons wor -> do
       tell [nam]
       a_ [class_ "mention", href_ $ "/user/" <> nam] $ "@" <> toHtml nam
@@ -223,8 +226,8 @@ fmtWord wor = asks fst >>= \emotes -> if
       a_ [class_ "url", href_ wor] $ toHtml wor
   | otherwise -> toHtml wor
 
-fmtEmote :: Text -> Text -> Text -> Fmt ()
-fmtEmote ori txt url = img_
+fmtEmote :: Scope -> Text -> Text -> Fmt ()
+fmtEmote (Scope ori) txt url = img_
   [ class_ "emote"
   , src_ $ "https:" <> url
   , title_ $ txt <> " [" <> ori <> "]"
@@ -255,8 +258,10 @@ renderComments f st = case st ^. play of
       else ul_ [class_ "comments"] $
         toHtmlRaw $ foldMap html $ f $ SB.past cms
 
-renderVideos :: [Tv.Video] -> Html ()
-renderVideos vs =
+renderVideos :: Tv.User -> [Tv.Video] -> Html ()
+renderVideos Tv.User { display_name, bio } vs = do
+  h1_ $ toHtml display_name
+  for_ bio $ p_ [class_ "bio"] . toHtml . tshow
   ul_ [class_ "videos"] $
     for_ vs $ \Tv.Video
       { title
@@ -305,13 +310,15 @@ follows hls = do
 
 videos :: MonadIO m => Tv.Auth -> Text -> ConduitT i View m ()
 videos auth name = do
-  Tv.User { _id, display_name } <- liftIO $ Tv.getUserByName auth name
-  let cid = Tv.userChannel _id
+  user <- liftIO $ Tv.getUserByName auth name
+  let
+    Tv.User { _id, display_name } = user
+    cid = Tv.userChannel _id
   vs <- liftIO $ runConduit $
     Tv.getChannelVideos auth cid
     .| C.concat
     .| C.sinkList
-  yield $ View display_name $ renderText $ renderVideos vs
+  yield $ View display_name $ renderText $ renderVideos user vs
   threadDelay maxBound
 
 runMpvChat :: Config -> IO ()
@@ -360,7 +367,7 @@ runMpvChat Config { ipcPath, auth, port, highlights } = evalContT $ do
         writeTChan redraw ()
       append cs = atomically $ update $ play . _Just %~
         (latest %~ \t -> maybe t time $ cs ^? _last) .
-        (comments %~ SB.append (toList cs))
+        (comments %~ SB.append cs)
       load vid = startTask taskLoad $ do
         atomically $ do
           update $ play ?~ def

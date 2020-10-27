@@ -4,6 +4,10 @@ body {
     font-family: sans-serif;
 }
 
+a {
+    color: #55bbff;
+}
+
 .videos {
     display: flex;
     flex-wrap: wrap;
@@ -97,8 +101,4 @@ body {
     color: inherit;
     text-decoration: inherit;
     font-weight: bolder;
-}
-
-.url {
-    color: #55bbff;
 }

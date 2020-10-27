@@ -7,8 +7,6 @@ module MpvChat.Prelude
     module E
   -- * Type Aliases
   , LByteString
-  , LHashMap
-  , LMap
   , LText
   -- * Function Synonyms
   , identity
@@ -156,7 +154,6 @@ import           Data.Functor.Identity         as E
                                                 ( Identity(Identity)
                                                 , runIdentity
                                                 )
-import qualified Data.HashMap.Lazy             as L
 import           Data.HashMap.Strict           as E
                                                 ( HashMap )
 import           Data.HashSet                  as E
@@ -169,7 +166,6 @@ import           Data.IntMap.Strict            as E
                                                 ( IntMap )
 import           Data.List.NonEmpty            as E
                                                 ( NonEmpty )
-import qualified Data.Map.Lazy                 as L
 import           Data.Map.Strict               as E
                                                 ( Map )
 import           Data.Maybe                    as E
@@ -341,9 +337,10 @@ import           UnliftIO.STM                  as E
                                                 , writeTVar
                                                 )
 
+-- | Synonym for lazy `L.ByteString`.
 type LByteString = L.ByteString
-type LHashMap = L.HashMap
-type LMap = L.Map
+
+-- | Synonym for lazy `L.Text`.
 type LText = L.Text
 
 -- | Synonym for `id`.
