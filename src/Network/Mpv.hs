@@ -17,13 +17,14 @@ import           Control.Monad.Catch            ( MonadThrow
                                                 , throwM
                                                 )
 import           Control.Monad.RWS              ( ask )
-import           Data.Aeson                     ( Value
+import           Data.Aeson                     ( Value(Null)
                                                 , eitherDecodeStrict'
                                                 , encode
                                                 , object
                                                 , parseJSON
                                                 , toJSON
                                                 , withObject
+                                                , (.!=)
                                                 , (.:)
                                                 , (.:?)
                                                 , (.=)
@@ -69,7 +70,7 @@ instance FromJSON Response where
     let evt "property-change" = EvtPropChange
           <$> o .: "id"
           <*> o .: "name"
-          <*> o .: "data"
+          <*> o .:? "data" .!= Null
         evt name = pure $ EvtOther name
         rep "success" = Right <$> o .:? "data"
         rep err       = pure $ Left err
