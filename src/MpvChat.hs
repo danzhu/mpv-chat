@@ -317,15 +317,18 @@ follows hls = do
 
 videos :: MonadIO m => Tv.Auth -> Text -> ConduitT i View m ()
 videos auth name = do
-  user <- liftIO $ Tv.getUserByName auth name
-  let
-    Tv.User { _id, display_name } = user
-    cid = Tv.userChannel _id
-  vs <- liftIO $ runConduit $
-    Tv.getChannelVideos auth cid
-    .| C.concat
-    .| C.sinkList
-  yield $ View display_name $ renderText $ renderVideos user vs
+  liftIO (Tv.getUserByName auth name) >>= \case
+    Nothing ->
+      yield $ View "Not Found" $ renderText $
+        h1_ "user not found"
+    Just user@Tv.User { _id, display_name } -> do
+      let
+        cid = Tv.userChannel _id
+      vs <- liftIO $ runConduit $
+        Tv.getChannelVideos auth cid
+        .| C.concat
+        .| C.sinkList
+      yield $ View display_name $ renderText $ renderVideos user vs
   threadDelay maxBound
 
 runMpvChat :: Config -> IO ()

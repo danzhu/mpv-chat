@@ -179,6 +179,7 @@ import           Data.MonoTraversable          as E
                                                 , MonoFoldable
                                                 , MonoFunctor(omap)
                                                 , MonoTraversable(otraverse)
+                                                , headMay
                                                 )
 import           Data.MonoTraversable.Unprefixed
                                                as E

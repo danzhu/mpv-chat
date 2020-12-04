@@ -132,12 +132,12 @@ getCursorPaged _ auth url = fetch "" where
     yield xs
     for_ nxt fetch
 
-getUserByName :: (MonadIO m, MonadFail m) => Auth -> Text -> m User
+getUserByName :: MonadIO m => Auth -> Text -> m (Maybe User)
 getUserByName auth name = do
-  Paged [u] _ <- query @(Paged "users" User) auth userUrl
+  Paged us _ <- query @(Paged "users" User) auth userUrl
     [ ("login", Just $ encodeUtf8 name)
     ]
-  pure u
+  pure $ headMay us
 
 getVideo :: MonadIO m => Auth -> VideoId -> m Video
 getVideo auth vid = query auth (videoUrl vid) []
