@@ -30,6 +30,7 @@ import           Data.Aeson                     ( Value(Null)
                                                 , (.=)
                                                 )
 import           Data.Aeson.Types               ( parseEither )
+import qualified Data.ByteString.Char8 as BC
 import qualified Data.Conduit.Combinators      as C
 import           Data.Conduit.Network.Unix      ( AppDataUnix
                                                 , appSink
@@ -115,10 +116,13 @@ produce = do
   mpv <- ask
   (cmd, wait) <- atomically $ readTBQueue $ requests mpv
   rid <- atomically $ stateTVar (waits mpv) $ IM.insert wait
-  pure $ toStrict $ encode $ ReqCommand rid $ toJSON cmd
+  let line = toStrict $ encode $ ReqCommand rid $ toJSON cmd
+  liftIO $ BC.putStrLn $ "> " <> line
+  pure line
 
 consume :: ByteString -> MpvIO ()
 consume line = do
+  liftIO $ BC.putStrLn $ "  " <> line
   mpv <- ask
   res <- expectE (MpvJsonError line) $ eitherDecodeStrict' line
   case res of
