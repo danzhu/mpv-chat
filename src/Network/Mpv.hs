@@ -187,7 +187,13 @@ instance (ToJSON a, CommandType c) => CommandType (a -> c) where
 command :: CommandType c => Text -> Mpv -> c
 command cmd = commandValue [toJSON cmd]
 
-loadfile :: Mpv -> Text -> IO ()
+newtype LoadData = LoadData
+  { playlist_entry_id :: Int
+  }
+  deriving stock (Generic)
+  deriving anyclass (FromJSON)
+
+loadfile :: Mpv -> Text -> IO LoadData
 loadfile = command "loadfile"
 
 getProperty :: FromJSON a => Mpv -> Prop -> IO a

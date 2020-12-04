@@ -11,6 +11,7 @@ import           Control.Concurrent.Task        ( startTask
                                                 , withEmptyTask
                                                 , withTask_
                                                 )
+import           Control.Monad                  ( void )
 import           Control.Monad.ContT            ( contT_ )
 import           Control.Monad.RWS              ( asks
                                                 , tell
@@ -95,7 +96,8 @@ import           Network.Wai.Middleware.StaticRoute
                                                 , routeGet
                                                 , routePost
                                                 )
-import           Network.Wai.Monad              ( WaiApp
+import           Network.Wai.Monad              ( Wai
+                                                , WaiApp
                                                 , runWai
                                                 , wai
                                                 )
@@ -299,6 +301,11 @@ page vs = wai $ routeGet err $ routeAccept err
     str _ res = res $ responseEvents $ vs .| C.map enc
     enc v = def { eventData = encode v }
 
+post :: Wai () -> WaiApp
+post app = wai . routePost err . runWai $ do
+  app
+  pure $ responsePlainStatus ok200 []
+
 follows :: MonadIO m => Highlights -> ConduitT i View m ()
 follows hls = do
   yield $ View "Follows" $ renderText $
@@ -353,10 +360,9 @@ runMpvChat Config { ipcPath, auth, port, highlights } = evalContT $ do
         ["follows"] -> page $ follows highlights
         ["channel", chan] -> page $ videos auth chan
         -- actions
-        ["loadfile"] -> wai $ routePost err $ runWai $ do
+        ["loadfile"] -> post $ do
           url <- join $ asks requestBS
-          liftIO $ loadfile mpv $ decodeUtf8 url
-          pure $ responsePlainStatus ok200 []
+          void $ liftIO $ loadfile mpv $ decodeUtf8 url
         -- docs
         ["doc"] -> pure $ responseRedirect "/doc/all/index.html"
         "doc" : _ -> wai $ appStatic err installPath
