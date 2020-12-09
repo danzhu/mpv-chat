@@ -44,12 +44,19 @@ import           MpvChat.Prelude
 type Prop = Text
 type Error = Text
 
-data Request
-  = ReqCommand IM.Id Value
+data Request = ReqCommand
+  { reqId :: IM.Id
+  , reqAsync :: Bool
+  , reqCommand :: [Value]
+  }
   deriving stock Show
 
 instance ToJSON Request where
-  toJSON (ReqCommand rid cmd) = object ["request_id" .= rid, "command" .= cmd]
+  toJSON (ReqCommand rid asy cmd) = object
+    [ "request_id" .= rid
+    , "async" .= asy
+    , "command" .= cmd
+    ]
 
 data Event
   = EvtPropChange IM.Id Prop Value
@@ -116,7 +123,7 @@ produce = do
   mpv <- ask
   (cmd, wait) <- atomically $ readTBQueue $ requests mpv
   rid <- atomically $ stateTVar (waits mpv) $ IM.insert wait
-  let line = toStrict $ encode $ ReqCommand rid $ toJSON cmd
+  let line = toStrict $ encode $ ReqCommand rid True cmd
   liftIO $ BC.putStrLn $ "> " <> line
   pure line
 
@@ -147,6 +154,7 @@ stdout app = runConduit $
 handle :: MpvIO a
 handle = do
   mpv <- ask
+  () <- liftIO $ command "disable_event" mpv ("all" :: Text)
   forever $ atomically (readTChan $ events mpv) >>= \case
     EvtPropChange i _ v -> do
       h <- IM.lookup i <$> readTVarIO (changes mpv)
@@ -169,8 +177,9 @@ eventChan :: MonadIO m => Mpv -> m (TChan Event)
 eventChan mpv = atomically $ dupTChan $ events mpv
 
 observeEvent :: MonadUnliftIO m => Mpv -> Text -> m () -> m ()
-observeEvent mpv e f = withRunInIO $ \run -> atomically $
-  modifyTVar' (handlers mpv) $ insertWith (<>) e $ run f
+observeEvent mpv e f = withRunInIO $ \run -> do
+  atomically $ modifyTVar' (handlers mpv) $ insertWith (<>) e $ run f
+  command "enable_event" mpv e
 
 class CommandType a where
   commandValue :: [Value] -> Mpv -> a
