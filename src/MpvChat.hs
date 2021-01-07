@@ -137,12 +137,13 @@ instance Default Play where
 data ChatState = ChatState
   { _play :: Maybe Play
   , _delay :: Scientific
+  , _version :: Int
   }
 
 makeLenses ''ChatState
 
 instance Default ChatState where
-  def = ChatState Nothing 0
+  def = ChatState Nothing 0 0
 
 data View = View
   { title :: Text
@@ -336,7 +337,6 @@ runMpvChat Config { ipcPath, auth, port, highlights } = evalContT $ do
   chatState <- newTVarIO def
   active <- newTVarIO False
   seek <- newTVarIO False
-  redraw <- newBroadcastTChanIO
 
   exePath <- getExecutablePath
   let installPath = takeDirectory $ takeDirectory exePath
@@ -350,11 +350,18 @@ runMpvChat Config { ipcPath, auth, port, highlights } = evalContT $ do
         & setPort port
         & setBeforeMainLoop entry
       messages f = do
-        red <- atomically $ dupTChan redraw
+        ver <- newTVarIO (-1)
         forever $ do
-          st <- readTVarIO chatState
+          st <- atomically $ do
+            st <- readTVar chatState
+            cur <- readTVar ver
+            let new = st ^. version
+            guard $ cur < new
+            writeTVar ver new
+            pure st
           yield $ View "Chat" $ renderText $ renderComments f st
-          atomically $ readTChan red
+          -- update at most once per 100ms
+          threadDelay 100_000
       app = asks pathInfo >>= \case
         -- chat messages
         [] -> page $ messages $ take 500
@@ -371,9 +378,7 @@ runMpvChat Config { ipcPath, auth, port, highlights } = evalContT $ do
         "doc" : _ -> wai $ appStatic err installPath
         -- static
         _ -> wai $ appStatic err "public"
-      update f = do
-        modifyTVar' chatState $ reseek . f
-        writeTChan redraw ()
+      update f = modifyTVar' chatState $ (version %~ succ) . reseek . f
       append cs = atomically $ update $ play . _Just %~
         (latest %~ \t -> maybe t time $ cs ^? _last) .
         (comments %~ SB.append cs)
