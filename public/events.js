@@ -1,7 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     const content = document.getElementById('content')
     const source = new EventSource(document.location.pathname)
-    source.addEventListener('message', event => {
+    source.addEventListener('message', (event) => {
         const data = JSON.parse(event.data)
         document.title = data.title
         content.innerHTML = data.content

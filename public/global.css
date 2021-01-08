@@ -49,7 +49,7 @@ a {
 
 .comment {
     display: flex;
-    padding: .2em 0;
+    padding: 0.2em 0;
 }
 
 .highlight {
@@ -58,9 +58,9 @@ a {
 
 .icon {
     flex-shrink: 0;
-    margin: .5em 0;
+    margin: 0.5em 0;
     width: 1em;
-    border-radius: .2em;
+    border-radius: 0.2em;
     color: inherit;
     background-color: #a970ff;
     text-decoration: inherit;
@@ -70,9 +70,9 @@ a {
     display: none;
     position: absolute;
     margin-left: 1em;
-    padding: .5em 1em;
+    padding: 0.5em 1em;
     max-width: 20em;
-    border-radius: .2em;
+    border-radius: 0.2em;
     background-color: #333333;
     word-wrap: break-word;
 }
@@ -86,7 +86,7 @@ a {
 }
 
 .message {
-    margin: 0 .5em;
+    margin: 0 0.5em;
     line-height: 2;
     overflow: auto;
     word-wrap: break-word;

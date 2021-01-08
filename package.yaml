@@ -1,82 +1,82 @@
 name: mpv-chat
 
 default-extensions:
-- DeriveAnyClass
-- DeriveGeneric
-- DerivingStrategies
-- DisambiguateRecordFields
-- GeneralizedNewtypeDeriving
-- LambdaCase
-- MultiWayIf
-- NamedFieldPuns
-- NoImplicitPrelude
-- OverloadedStrings
-- ScopedTypeVariables
-- TupleSections
-- TypeApplications
-- TypeFamilies
-- ViewPatterns
+  - DeriveAnyClass
+  - DeriveGeneric
+  - DerivingStrategies
+  - DisambiguateRecordFields
+  - GeneralizedNewtypeDeriving
+  - LambdaCase
+  - MultiWayIf
+  - NamedFieldPuns
+  - NoImplicitPrelude
+  - OverloadedStrings
+  - ScopedTypeVariables
+  - TupleSections
+  - TypeApplications
+  - TypeFamilies
+  - ViewPatterns
 
 ghc-options:
-- -Weverything
-- -Wno-all-missed-specialisations
-- -Wno-implicit-prelude
-- -Wno-missed-specialisations
-- -Wno-missing-exported-signatures
-- -Wno-missing-import-lists
-- -Wno-missing-local-signatures
-- -Wno-monomorphism-restriction
-- -Wno-safe
-- -Wno-unsafe
+  - -Weverything
+  - -Wno-all-missed-specialisations
+  - -Wno-implicit-prelude
+  - -Wno-missed-specialisations
+  - -Wno-missing-exported-signatures
+  - -Wno-missing-import-lists
+  - -Wno-missing-local-signatures
+  - -Wno-monomorphism-restriction
+  - -Wno-safe
+  - -Wno-unsafe
 
 dependencies:
-- base
+  - base
 
 library:
   source-dirs: src
   dependencies:
-  # === core ===
-  - bytestring
-  - containers
-  - filepath
-  - mtl
-  - stm
-  - text
-  - transformers
-  # === full ===
-  - async
-  - exceptions
-  - hashable
-  - network-uri
-  - unordered-containers
-  # === extra ===
-  - aeson
-  - conduit
-  - conduit-extra
-  - data-default-class
-  - http-conduit
-  - http-media
-  - http-types
-  - lucid
-  - megaparsec
-  - microlens
-  - microlens-th
-  - mime-types
-  - mono-traversable
-  - scientific
-  - unliftio
-  - unliftio-core
-  - wai
-  - warp
+    # === core ===
+    - bytestring
+    - containers
+    - filepath
+    - mtl
+    - stm
+    - text
+    - transformers
+    # === full ===
+    - async
+    - exceptions
+    - hashable
+    - network-uri
+    - unordered-containers
+    # === extra ===
+    - aeson
+    - conduit
+    - conduit-extra
+    - data-default-class
+    - http-conduit
+    - http-media
+    - http-types
+    - lucid
+    - megaparsec
+    - microlens
+    - microlens-th
+    - mime-types
+    - mono-traversable
+    - scientific
+    - unliftio
+    - unliftio-core
+    - wai
+    - warp
 
 executables:
   mpv-chat:
     main: Main.hs
     source-dirs: app
     ghc-options:
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
+      - -threaded
+      - -rtsopts
+      - -with-rtsopts=-N
     dependencies:
-    - mpv-chat
-    - optparse-applicative
+      - mpv-chat
+      - optparse-applicative
