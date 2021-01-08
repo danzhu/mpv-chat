@@ -1,22 +1,24 @@
 module Control.Concurrent.Task
-  ( Task
-  , killTask
-  , newEmptyTask
-  , newTask
-  , startTask
-  , stopTask
-  , withEmptyTask
-  , withTask
-  , withTask_
-  ) where
+  ( Task,
+    killTask,
+    newEmptyTask,
+    newTask,
+    startTask,
+    stopTask,
+    withEmptyTask,
+    withTask,
+    withTask_,
+  )
+where
 
-import           MpvChat.Prelude
-import           UnliftIO.Async                 ( Async
-                                                , async
-                                                , cancel
-                                                , link
-                                                , uninterruptibleCancel
-                                                )
+import MpvChat.Prelude
+import UnliftIO.Async
+  ( Async,
+    async,
+    cancel,
+    link,
+    uninterruptibleCancel,
+  )
 
 newtype Task = Task (TVar (Maybe (Async ())))
 

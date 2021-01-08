@@ -1,33 +1,34 @@
 module Network.Twitch.Ffz
-  ( Channel(..)
-  , Emote(..)
-  , Set(..)
-  , channelUrl
-  , getChannel
-  ) where
+  ( Channel (..),
+    Emote (..),
+    Set (..),
+    channelUrl,
+    getChannel,
+  )
+where
 
-import           MpvChat.Prelude
-import           Network.Request                ( request )
-import qualified Network.Twitch                as Tv
+import MpvChat.Prelude
+import Network.Request (request)
+import qualified Network.Twitch as Tv
 
 data Emote = Emote
-  { name :: Text
-  , urls :: HashMap Int Text
+  { name :: Text,
+    urls :: HashMap Int Text
   }
   deriving stock (Generic, Show)
-  deriving anyclass FromJSON
+  deriving anyclass (FromJSON)
 
 newtype Set = Set
   { emoticons :: [Emote]
   }
   deriving stock (Generic, Show)
-  deriving anyclass FromJSON
+  deriving anyclass (FromJSON)
 
 newtype Channel = Channel
   { sets :: HashMap Text Set
   }
   deriving stock (Generic, Show)
-  deriving anyclass FromJSON
+  deriving anyclass (FromJSON)
 
 rootUrl :: Text
 rootUrl = "https://api.frankerfacez.com/v1"

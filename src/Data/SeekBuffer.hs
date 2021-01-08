@@ -1,19 +1,20 @@
 module Data.SeekBuffer
-  ( SeekBuffer
-  , append
-  , empty
-  , future
-  , past
-  , seek
-  ) where
+  ( SeekBuffer,
+    append,
+    empty,
+    future,
+    past,
+    seek,
+  )
+where
 
-import           MpvChat.Prelude         hiding ( empty )
+import MpvChat.Prelude hiding (empty)
 
 data SeekBuffer a = SeekBuffer
-  { past :: [a]
-  , future :: [a]
+  { past :: [a],
+    future :: [a]
   }
-  deriving stock Show
+  deriving stock (Show)
 
 empty :: SeekBuffer a
 empty = SeekBuffer [] []

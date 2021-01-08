@@ -1,35 +1,36 @@
 module Network.Twitch.Bttv
-  ( Channel(..)
-  , Emote(..)
-  , Global
-  , channelUrl
-  , emoteUrl
-  , getChannel
-  , getGlobal
-  , globalUrl
-  ) where
+  ( Channel (..),
+    Emote (..),
+    Global,
+    channelUrl,
+    emoteUrl,
+    getChannel,
+    getGlobal,
+    globalUrl,
+  )
+where
 
-import           MpvChat.Prelude
-import           Network.Request                ( request )
-import qualified Network.Twitch                as Tv
+import MpvChat.Prelude
+import Network.Request (request)
+import qualified Network.Twitch as Tv
 
 -- HACK: v3 shared emote has different structure than global/channel,
 -- here are common fields to avoid different types
 data Emote = Emote
-  { id :: Text
-  , code :: Text
+  { id :: Text,
+    code :: Text
   }
   deriving stock (Generic, Show)
-  deriving anyclass FromJSON
+  deriving anyclass (FromJSON)
 
 type Global = [Emote]
 
 data Channel = Channel
-  { channelEmotes :: [Emote]
-  , sharedEmotes :: [Emote]
+  { channelEmotes :: [Emote],
+    sharedEmotes :: [Emote]
   }
   deriving stock (Generic, Show)
-  deriving anyclass FromJSON
+  deriving anyclass (FromJSON)
 
 rootUrl :: Text
 rootUrl = "https://api.betterttv.net/3"

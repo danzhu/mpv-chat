@@ -1,19 +1,21 @@
 module Network.Twitch.Channel
-  ( Channel(..)
-  , ChannelId
-  , parseChannelId
-  , userChannel
-  ) where
+  ( Channel (..),
+    ChannelId,
+    parseChannelId,
+    userChannel,
+  )
+where
 
-import           MpvChat.Prelude
-import           Network.Twitch.User            ( UserId )
-import           Text.Megaparsec                ( Parsec
-                                                , eof
-                                                , runParser
-                                                )
-import           Text.Megaparsec.Char.Lexer     ( decimal )
-import           Text.Megaparsec.Error          ( errorBundlePretty )
-import           Text.Read                      ( read )
+import MpvChat.Prelude
+import Network.Twitch.User (UserId)
+import Text.Megaparsec
+  ( Parsec,
+    eof,
+    runParser,
+  )
+import Text.Megaparsec.Char.Lexer (decimal)
+import Text.Megaparsec.Error (errorBundlePretty)
+import Text.Read (read)
 
 type Parser = Parsec Void Text
 
@@ -31,6 +33,7 @@ userChannel :: UserId -> ChannelId
 userChannel uid = ChannelId $ read $ show uid
 
 parseChannelId :: Text -> Either String ChannelId
-parseChannelId = first errorBundlePretty . runParser (p <* eof) "" where
-  p :: Parser ChannelId
-  p = ChannelId <$> decimal
+parseChannelId = first errorBundlePretty . runParser (p <* eof) ""
+  where
+    p :: Parser ChannelId
+    p = ChannelId <$> decimal

@@ -1,9 +1,10 @@
 module Control.Monad.ContT
-  ( contT_
-  , runContT_
-  ) where
+  ( contT_,
+    runContT_,
+  )
+where
 
-import           MpvChat.Prelude
+import MpvChat.Prelude
 
 contT_ :: (m r -> m r) -> ContT r m ()
 contT_ f = mapContT f $ pure ()
