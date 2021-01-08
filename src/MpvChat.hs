@@ -53,7 +53,6 @@ import Lucid.Html5
     title_,
     ul_,
   )
-import MpvChat.Prelude
 import Network.HTTP.Types.Status
   ( Status,
     ok200,

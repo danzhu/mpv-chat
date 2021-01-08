@@ -22,7 +22,6 @@ import Data.ByteString.Builder
   )
 import Data.Conduit.Attoparsec (sinkParser)
 import qualified Data.Conduit.Combinators as C
-import MpvChat.Prelude
 import Network.HTTP.Types.Header
   ( ResponseHeaders,
     hContentType,

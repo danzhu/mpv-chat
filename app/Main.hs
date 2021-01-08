@@ -9,7 +9,6 @@ import MpvChat
     Config (Config),
     runMpvChat,
   )
-import MpvChat.Prelude
 import Options.Applicative
   ( Parser,
     ParserInfo,

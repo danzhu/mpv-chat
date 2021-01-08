@@ -4,8 +4,6 @@ module Control.Monad.ContT
   )
 where
 
-import MpvChat.Prelude
-
 contT_ :: (m r -> m r) -> ContT r m ()
 contT_ f = mapContT f $ pure ()
 

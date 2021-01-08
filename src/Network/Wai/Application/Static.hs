@@ -4,7 +4,6 @@ module Network.Wai.Application.Static
   )
 where
 
-import MpvChat.Prelude
 import Network.HTTP.Media.Accept (parseAccept)
 import Network.HTTP.Types.Header (hContentType)
 import Network.HTTP.Types.Status

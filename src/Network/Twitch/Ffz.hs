@@ -7,7 +7,6 @@ module Network.Twitch.Ffz
   )
 where
 
-import MpvChat.Prelude
 import Network.Request (request)
 import qualified Network.Twitch as Tv
 

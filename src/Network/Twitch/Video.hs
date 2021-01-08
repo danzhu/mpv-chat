@@ -6,7 +6,6 @@ module Network.Twitch.Video
   )
 where
 
-import MpvChat.Prelude
 import Network.Twitch.Channel (Channel)
 import Text.Megaparsec
   ( Parsec,

@@ -6,7 +6,6 @@ module Network.Wai.Middleware.StaticRoute
   )
 where
 
-import MpvChat.Prelude
 import Network.HTTP.Media
   ( MediaType,
     mapAccept,

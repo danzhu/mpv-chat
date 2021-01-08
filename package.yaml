@@ -9,7 +9,6 @@ default-extensions:
   - LambdaCase
   - MultiWayIf
   - NamedFieldPuns
-  - NoImplicitPrelude
   - OverloadedStrings
   - ScopedTypeVariables
   - TupleSections
@@ -30,7 +29,7 @@ ghc-options:
   - -Wno-unsafe
 
 dependencies:
-  - base
+  - base-noprelude
 
 library:
   source-dirs: src

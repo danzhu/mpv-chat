@@ -9,11 +9,11 @@ module Data.IdMap
 where
 
 import qualified Data.Foldable
-import MpvChat.Prelude hiding
+import Prelude hiding
   ( empty,
     lookup,
   )
-import qualified MpvChat.Prelude as P
+import qualified Prelude as P
 
 type Id = Int
 

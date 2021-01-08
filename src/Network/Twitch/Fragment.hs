@@ -3,7 +3,6 @@ module Network.Twitch.Fragment
   )
 where
 
-import MpvChat.Prelude
 import Network.Twitch.Emoticon (Emoticon)
 
 data Fragment = Fragment

@@ -3,7 +3,6 @@ module Network.Twitch.Message
   )
 where
 
-import MpvChat.Prelude
 import Network.Twitch.Fragment (Fragment)
 
 data Message = Message

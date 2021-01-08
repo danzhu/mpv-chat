@@ -1,6 +1,6 @@
 -- |
 -- Custom Prelude.
-module MpvChat.Prelude
+module Prelude
   ( -- * Re-exports
     module E,
 
@@ -42,7 +42,7 @@ import Control.Concurrent.STM.TVar as E
   ( stateTVar,
   )
 import Control.Monad as E
-  ( Monad ((>>=)),
+  ( Monad (return, (>>=)),
     MonadFail (fail),
     forever,
     guard,
@@ -179,6 +179,7 @@ import Data.Int as E
 import Data.IntMap.Strict as E
   ( IntMap,
   )
+import Data.List as E ((++))
 import Data.List.NonEmpty as E
   ( NonEmpty,
   )

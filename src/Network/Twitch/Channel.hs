@@ -6,7 +6,6 @@ module Network.Twitch.Channel
   )
 where
 
-import MpvChat.Prelude
 import Network.Twitch.User (UserId)
 import Text.Megaparsec
   ( Parsec,

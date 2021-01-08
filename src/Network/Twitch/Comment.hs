@@ -3,7 +3,6 @@ module Network.Twitch.Comment
   )
 where
 
-import MpvChat.Prelude
 import Network.Twitch.Message (Message)
 import Network.Twitch.User (User)
 

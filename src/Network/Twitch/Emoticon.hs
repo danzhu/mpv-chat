@@ -3,8 +3,6 @@ module Network.Twitch.Emoticon
   )
 where
 
-import MpvChat.Prelude
-
 newtype Emoticon = Emoticon
   { emoticon_id :: Text
   }

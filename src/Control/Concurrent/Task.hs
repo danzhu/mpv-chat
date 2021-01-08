@@ -11,7 +11,6 @@ module Control.Concurrent.Task
   )
 where
 
-import MpvChat.Prelude
 import UnliftIO.Async
   ( Async,
     async,

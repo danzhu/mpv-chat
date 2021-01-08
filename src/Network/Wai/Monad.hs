@@ -6,7 +6,6 @@ module Network.Wai.Monad
   )
 where
 
-import MpvChat.Prelude
 import Network.Wai
   ( Application,
     Request,

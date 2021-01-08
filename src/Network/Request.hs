@@ -3,7 +3,6 @@ module Network.Request
   )
 where
 
-import MpvChat.Prelude
 import Network.HTTP.Simple
   ( getResponseBody,
     httpJSON,

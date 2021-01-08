@@ -8,7 +8,7 @@ module Data.SeekBuffer
   )
 where
 
-import MpvChat.Prelude hiding (empty)
+import Prelude hiding (empty)
 
 data SeekBuffer a = SeekBuffer
   { past :: [a],

@@ -43,7 +43,6 @@ import Data.Conduit.Network.Unix
     runUnixClient,
   )
 import qualified Data.IdMap as IM
-import MpvChat.Prelude
 
 type Prop = Text
 

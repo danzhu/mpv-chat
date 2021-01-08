@@ -39,7 +39,6 @@ import GHC.TypeLits
     Symbol,
     symbolVal,
   )
-import MpvChat.Prelude
 import Network.HTTP.Types (Query)
 import Network.Request (request)
 import Network.Twitch.Channel

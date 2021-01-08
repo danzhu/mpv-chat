@@ -4,8 +4,6 @@ module Network.Twitch.User
   )
 where
 
-import MpvChat.Prelude
-
 newtype UserId = UserId Text
   deriving newtype (Eq, FromJSON, Hashable, Ord)
 

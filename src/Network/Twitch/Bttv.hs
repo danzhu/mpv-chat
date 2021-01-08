@@ -10,7 +10,6 @@ module Network.Twitch.Bttv
   )
 where
 
-import MpvChat.Prelude
 import Network.Request (request)
 import qualified Network.Twitch as Tv
 
