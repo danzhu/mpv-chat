@@ -20,6 +20,8 @@ import qualified Data.Conduit.Combinators as C
 import Data.Maybe (fromJust)
 import qualified Data.SeekBuffer as SB
 import Data.Text.IO (putStrLn)
+import Data.Time.Clock (NominalDiffTime)
+import Data.Time.Format (defaultTimeLocale, formatTime)
 import Lucid.Base
   ( Html,
     HtmlT,
@@ -110,7 +112,6 @@ import Network.Wai.Monad
     wai,
   )
 import System.FilePath.Posix (takeDirectory)
-import Text.Printf (printf)
 import UnliftIO.Concurrent (threadDelay)
 import UnliftIO.Environment (getExecutablePath)
 
@@ -128,7 +129,7 @@ type Mentions = [Text]
 type Fmt = HtmlT (RWS (Emotes, Highlights) Mentions ())
 
 data Comment = Comment
-  { time :: Scientific,
+  { time :: NominalDiffTime,
     html :: LByteString,
     user :: Text,
     display_user :: Text,
@@ -138,8 +139,8 @@ data Comment = Comment
 data Play = Play
   { _comments :: SB.SeekBuffer Comment,
     _done :: Bool,
-    _current :: Scientific,
-    _latest :: Scientific
+    _current :: NominalDiffTime,
+    _latest :: NominalDiffTime
   }
 
 makeLenses ''Play
@@ -149,7 +150,7 @@ instance Default Play where
 
 data ChatState = ChatState
   { _play :: Maybe Play,
-    _delay :: Scientific,
+    _delay :: NominalDiffTime,
     _version :: Int
   }
 
@@ -275,20 +276,20 @@ format
     where
       (html, mentions) = evalRWS (renderBST $ fmtComment c) (es, hls) ()
 
+renderTime :: NominalDiffTime -> Html ()
+renderTime = toHtml . formatTime defaultTimeLocale "%h:%2M:%2S"
+
 renderComments :: ([Comment] -> [Comment]) -> ChatState -> Html ()
 renderComments f st = case st ^. play of
   Nothing -> pre_ "idle"
   Just (Play cms don cur lat) -> do
-    let int = round :: Scientific -> Int
-    pre_ $
-      toHtml $
-        fold
-          [ show $ int cur,
-            printf " [%+d]" $ int $ st ^. delay,
-            " / ",
-            show $ int lat,
-            bool " ..." "" don
-          ]
+    pre_ $ do
+      renderTime cur
+      " ["
+      toHtml $ tshow $ st ^. delay
+      "] / "
+      renderTime lat
+      unless don " ..."
     if not don && null (SB.future cms)
       then pre_ "buffering..."
       else
@@ -314,7 +315,11 @@ renderVideos Tv.User {display_name, bio} vs = do
             div_ [class_ "meta"] $ do
               div_ [class_ "info"] $ do
                 h3_ [class_ "title", title_ title] $ toHtml title
-                p_ $ toHtml $ tshow len <> " secs, " <> tshow views <> " views"
+                p_ $ do
+                  renderTime len
+                  ", "
+                  toHtml $ tshow views
+                  " views"
                 for_ game $ p_ [class_ "game"] . toHtml
               div_ [class_ "actions"] $
                 button_ [class_ "load", data_ "post" "/loadfile", data_ "body" url] "|>"
