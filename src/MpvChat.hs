@@ -30,6 +30,7 @@ import           Lucid.Base                     ( Html
                                                 , toHtmlRaw
                                                 )
 import           Lucid.Html5                    ( a_
+                                                , alt_
                                                 , button_
                                                 , class_
                                                 , data_
@@ -234,6 +235,7 @@ fmtEmote (Scope ori) txt url = img_
   [ class_ "emote"
   , src_ $ "https:" <> url
   , title_ $ txt <> " [" <> ori <> "]"
+  , alt_ txt
   ]
 
 format :: Emotes -> Highlights -> Tv.Comment -> Comment
