@@ -7,8 +7,10 @@ module Network.Twitch.Ffz
   )
 where
 
+import Data.Aeson (FromJSON)
 import Network.Request (request)
 import qualified Network.Twitch as Tv
+import Prelude hiding (Set)
 
 data Emote = Emote
   { name :: Text,

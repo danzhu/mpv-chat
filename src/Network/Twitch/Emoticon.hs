@@ -3,6 +3,8 @@ module Network.Twitch.Emoticon
   )
 where
 
+import Data.Aeson (FromJSON)
+
 newtype Emoticon = Emoticon
   { emoticon_id :: Text
   }

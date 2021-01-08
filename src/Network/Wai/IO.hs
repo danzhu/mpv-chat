@@ -20,6 +20,7 @@ import Data.ByteString.Builder
     intDec,
     lazyByteString,
   )
+import Data.Conduit (ConduitT, runConduit, yield, (.|))
 import Data.Conduit.Attoparsec (sinkParser)
 import qualified Data.Conduit.Combinators as C
 import Network.HTTP.Types.Header

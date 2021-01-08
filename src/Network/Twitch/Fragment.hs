@@ -3,6 +3,7 @@ module Network.Twitch.Fragment
   )
 where
 
+import Data.Aeson (FromJSON)
 import Network.Twitch.Emoticon (Emoticon)
 
 data Fragment = Fragment

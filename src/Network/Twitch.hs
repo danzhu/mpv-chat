@@ -1,5 +1,3 @@
-{-# LANGUAGE DataKinds #-}
-
 module Network.Twitch
   ( Auth (..),
     Channel (..),
@@ -29,11 +27,13 @@ module Network.Twitch
 where
 
 import Data.Aeson
-  ( parseJSON,
+  ( FromJSON,
+    parseJSON,
     withObject,
     (.:),
     (.:?),
   )
+import Data.Conduit (ConduitT, yield)
 import GHC.TypeLits
   ( KnownSymbol,
     Symbol,

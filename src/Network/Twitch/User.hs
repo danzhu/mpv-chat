@@ -4,6 +4,8 @@ module Network.Twitch.User
   )
 where
 
+import Data.Aeson (FromJSON)
+
 newtype UserId = UserId Text
   deriving newtype (Eq, FromJSON, Hashable, Ord)
 

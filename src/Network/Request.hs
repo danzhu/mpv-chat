@@ -3,6 +3,7 @@ module Network.Request
   )
 where
 
+import Data.Aeson (FromJSON)
 import Network.HTTP.Simple
   ( getResponseBody,
     httpJSON,

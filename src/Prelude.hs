@@ -20,30 +20,33 @@ module Prelude
 where
 
 import Control.Applicative as E
-  ( Alternative
-      ( empty,
-        many,
-        some,
-        (<|>)
-      ),
-    Applicative
-      ( liftA2,
-        pure,
-        (*>),
-        (<*),
-        (<*>)
-      ),
+  ( Alternative (empty, many, some, (<|>)),
+    Applicative (liftA2, pure, (*>), (<*), (<*>)),
+  )
+import Control.Arrow as E
+  ( Arrow (arr, first, second, (&&&), (***)),
+    ArrowApply,
+    ArrowChoice (left, right, (+++), (|||)),
+    ArrowLoop,
+    ArrowMonad (ArrowMonad),
+    ArrowPlus ((<+>)),
+    ArrowZero (zeroArrow),
+    Kleisli (Kleisli, runKleisli),
+    returnA,
+    (<<<),
+    (<<^),
+    (>>>),
+    (>>^),
+    (^<<),
+    (^>>),
   )
 import Control.Category (id)
-import Control.Category as E
-  ( Category ((.)),
-  )
-import Control.Concurrent.STM.TVar as E
-  ( stateTVar,
-  )
+import Control.Category as E (Category ((.)))
+import Control.Concurrent.STM.TVar as E (stateTVar)
 import Control.Monad as E
   ( Monad (return, (>>=)),
     MonadFail (fail),
+    MonadPlus,
     forever,
     guard,
     join,
@@ -51,153 +54,129 @@ import Control.Monad as E
     when,
     (<=<),
     (=<<),
+    (>=>),
   )
-import Control.Monad.IO.Class as E
-  ( MonadIO (liftIO),
+import Control.Monad.IO.Class as E (MonadIO (liftIO))
+import Control.Monad.IO.Unlift as E (MonadUnliftIO (withRunInIO))
+import Control.Monad.RWS.Class as E
+  ( MonadRWS,
+    MonadReader (ask, local, reader),
+    MonadState (get, put, state),
+    MonadWriter (listen, pass, tell, writer),
+    asks,
+    censor,
+    gets,
+    listens,
+    modify,
+    modify',
   )
-import Control.Monad.IO.Unlift as E
-  ( MonadUnliftIO (withRunInIO),
-  )
-import Control.Monad.Trans as E
-  ( lift,
-  )
+import Control.Monad.Trans as E (MonadTrans (lift))
 import Control.Monad.Trans.Cont as E
   ( Cont,
-    ContT (ContT),
+    ContT (ContT, runContT),
     evalContT,
     mapCont,
     mapContT,
     runCont,
-    runContT,
     withCont,
     withContT,
   )
+import Control.Monad.Trans.Except as E (ExceptT (ExceptT), runExceptT)
+import Control.Monad.Trans.Identity as E (IdentityT (IdentityT, runIdentityT))
+import Control.Monad.Trans.Maybe as E (MaybeT (MaybeT, runMaybeT))
 import Control.Monad.Trans.RWS as E
   ( RWS,
-    RWST (RWST),
+    RWST (RWST, runRWST),
     evalRWS,
     evalRWST,
     execRWS,
     execRWST,
     runRWS,
-    runRWST,
   )
 import Control.Monad.Trans.Reader as E
   ( Reader,
-    ReaderT (ReaderT),
+    ReaderT (ReaderT, runReaderT),
     runReader,
-    runReaderT,
   )
 import Control.Monad.Trans.State as E
   ( State,
-    StateT (StateT),
+    StateT (StateT, runStateT),
     runState,
-    runStateT,
   )
 import Control.Monad.Trans.Writer as E
   ( Writer,
-    WriterT (WriterT),
+    WriterT (WriterT, runWriterT),
     runWriter,
-    runWriterT,
   )
-import Data.Aeson as E
-  ( FromJSON,
-    ToJSON,
-  )
-import Data.Bifunctor as E
-  ( Bifunctor,
-    first,
-    second,
-  )
-import Data.Bool as E
-  ( Bool (False, True),
-    bool,
-    not,
-    otherwise,
-    (&&),
-    (||),
-  )
-import Data.ByteString as E
-  ( ByteString,
-  )
+import Data.Bifunctor as E (Bifunctor (bimap))
+import Data.Bool as E (Bool (False, True), bool, not, otherwise, (&&), (||))
+import Data.ByteString as E (ByteString)
 import qualified Data.ByteString.Lazy as L
-import Data.Char as E
-  ( Char,
-  )
-import Data.Conduit as E
-  ( ConduitT,
-    runConduit,
-    yield,
-    (.|),
-  )
+import Data.Char as E (Char)
 import Data.Containers as E
-  ( IsMap (..),
-    IsSet (..),
-    SetContainer (..),
+  ( BiPolyMap (mapKeysWith),
+    HasKeysSet (keysSet),
+    IsMap
+      ( adjustMap,
+        adjustWithKey,
+        alterMap,
+        deleteMap,
+        filterMap,
+        findWithDefault,
+        insertLookupWithKey,
+        insertMap,
+        insertWith,
+        insertWithKey,
+        lookup,
+        mapFromList,
+        mapWithKey,
+        singletonMap,
+        unionWith,
+        unionWithKey,
+        unionsWith,
+        updateLookupWithKey,
+        updateMap,
+        updateWithKey
+      ),
+    IsSet (deleteSet, filterSet, insertSet, setFromList),
+    PolyMap (differenceMap, intersectionMap, intersectionWithMap),
+    SetContainer
+      ( difference,
+        intersection,
+        keys,
+        member,
+        notMember,
+        union,
+        unions
+      ),
   )
-import Data.Default.Class as E
-  ( Default (def),
-  )
-import Data.Either as E
-  ( Either (Left, Right),
-    either,
-  )
-import Data.Eq as E
-  ( Eq ((/=), (==)),
-  )
-import Data.Foldable as E
-  ( Foldable,
-    asum,
-  )
-import Data.Function as E
-  ( const,
-    flip,
-    ($),
-    (&),
-  )
+import Data.Default.Class as E (Default (def))
+import Data.Either as E (Either (Left, Right), either)
+import Data.Eq as E (Eq ((/=), (==)))
+import Data.Foldable as E (Foldable, asum)
+import Data.Function as E (const, flip, ($), (&))
 import Data.Functor (Functor (fmap))
-import Data.Functor as E
-  ( Functor,
-    (<$>),
-  )
-import Data.Functor.Identity as E
-  ( Identity (Identity),
-    runIdentity,
-  )
-import Data.HashMap.Strict as E
-  ( HashMap,
-  )
-import Data.HashSet as E
-  ( HashSet,
-  )
-import Data.Hashable as E
-  ( Hashable,
-  )
-import Data.Int as E
-  ( Int,
-  )
-import Data.IntMap.Strict as E
-  ( IntMap,
-  )
+import Data.Functor as E (Functor ((<$)), void, ($>), (<$>))
+import Data.Functor.Constant as E (Constant (Constant, getConstant))
+import Data.Functor.Identity as E (Identity (Identity, runIdentity))
+import Data.HashMap.Strict as E (HashMap)
+import Data.HashSet as E (HashSet)
+import Data.Hashable as E (Hashable)
+import Data.Int as E (Int)
+import Data.IntMap.Strict as E (IntMap)
+import Data.IntSet as E (IntSet)
 import Data.List as E ((++))
-import Data.List.NonEmpty as E
-  ( NonEmpty,
-  )
-import Data.Map.Strict as E
-  ( Map,
-  )
-import Data.Maybe as E
-  ( Maybe (Just, Nothing),
-    fromMaybe,
-    isJust,
-    maybe,
-  )
+import Data.List.NonEmpty as E (NonEmpty)
+import Data.Map.Strict as E (Map)
+import Data.Maybe as E (Maybe (Just, Nothing), fromMaybe, isJust, maybe)
 import Data.MonoTraversable as E
   ( Element,
     MonoFoldable,
     MonoFunctor (omap),
+    MonoPointed,
     MonoTraversable (otraverse),
     headMay,
+    lastMay,
   )
 import Data.MonoTraversable.Unprefixed as E
   ( all,
@@ -221,28 +200,40 @@ import Data.MonoTraversable.Unprefixed as E
     toList,
     traverse_,
   )
-import Data.Monoid as E
-  ( Monoid (mempty),
-  )
+import Data.Monoid as E (Monoid (mempty))
 import Data.Ord as E
-  ( Ord (..),
+  ( Ord (compare, max, min, (<), (<=), (>), (>=)),
     Ordering (EQ, GT, LT),
   )
-import Data.Proxy as E
-  ( Proxy (Proxy),
-  )
-import Data.Scientific as E
-  ( Scientific,
-  )
-import Data.Semigroup as E
-  ( Semigroup ((<>)),
-  )
+import Data.Proxy as E (Proxy (Proxy))
+import Data.Scientific as E (Scientific)
+import Data.Semigroup as E (Semigroup ((<>)))
+import Data.Sequence as E (Seq)
 import Data.Sequences as E
-  ( IsSequence (..),
-    LazySequence (..),
-    SemiSequence (..),
-    Textual (..),
-    Utf8 (..),
+  ( IsSequence
+      ( break,
+        drop,
+        dropEnd,
+        dropWhile,
+        filter,
+        filterM,
+        fromList,
+        groupBy,
+        partition,
+        replicate,
+        replicateM,
+        span,
+        splitAt,
+        splitWhen,
+        take,
+        takeWhile,
+        uncons,
+        unsnoc
+      ),
+    LazySequence (fromStrict, toStrict),
+    SemiSequence (cons, find, intersperse, reverse, snoc, sortBy),
+    Textual (lines, toCaseFold, toLower, toUpper, unlines, unwords, words),
+    Utf8 (decodeUtf8, encodeUtf8),
     catMaybes,
     delete,
     deleteBy,
@@ -255,6 +246,8 @@ import Data.Sequences as E
     isInfixOf,
     isPrefixOf,
     isSuffixOf,
+    pack,
+    repack,
     replaceSeq,
     sort,
     sortOn,
@@ -262,54 +255,31 @@ import Data.Sequences as E
     splitSeq,
     stripPrefix,
     stripSuffix,
+    unpack,
   )
-import Data.String as E
-  ( String,
-  )
-import Data.Text as E
-  ( Text,
-  )
+import Data.Set as E (Set)
+import Data.String as E (IsString, String)
+import Data.Text as E (Text)
 import qualified Data.Text.Lazy as L
 import Data.Traversable (Traversable (sequenceA))
-import Data.Traversable as E
-  ( Traversable (traverse),
-    for,
-  )
-import Data.Tuple as E
-  ( curry,
-    fst,
-    snd,
-    uncurry,
-  )
-import Data.Void as E
-  ( Void,
-    absurd,
-  )
+import Data.Traversable as E (Traversable (traverse), for)
+import Data.Tuple as E (curry, fst, snd, swap, uncurry)
+import Data.Void as E (Void, absurd)
 import GHC.Enum as E
   ( Bounded (maxBound, minBound),
-    Enum (..),
+    Enum (pred, succ),
   )
 import GHC.Err (undefined)
-import GHC.Err as E
-  ( error,
-  )
-import GHC.Float as E
-  ( Float,
-  )
-import GHC.Generics as E
-  ( Generic,
-  )
+import GHC.Err as E (error)
+import GHC.Float as E (Float)
+import GHC.Generics as E (Generic)
 import GHC.Num as E
   ( Integer,
-    Num (..),
+    Num (abs, negate, signum, (*), (+), (-)),
     subtract,
   )
-import GHC.Real as E
-  ( RealFrac (..),
-  )
-import GHC.Stack as E
-  ( HasCallStack,
-  )
+import GHC.Real as E (RealFrac (ceiling, floor, round, truncate))
+import GHC.Stack as E (HasCallStack)
 import Lens.Micro as E
   ( (%~),
     (.~),
@@ -317,29 +287,24 @@ import Lens.Micro as E
     (^.),
     (^?),
     _Just,
+    _Left,
+    _Nothing,
+    _Right,
+    _head,
+    _init,
     _last,
+    _tail,
   )
-import Lens.Micro.TH as E
-  ( makeLenses,
-  )
-import System.IO as E
-  ( FilePath,
-    IO,
-  )
-import Text.Read as E
-  ( Read,
-  )
-import Text.Show as E
-  ( Show (show),
-  )
-import UnliftIO.Async as E
-  ( concurrently_,
-    mapConcurrently,
-  )
+import Lens.Micro.TH as E (makeLenses)
+import System.IO as E (FilePath, IO)
+import Text.Read as E (Read, readMaybe)
+import Text.Show as E (Show (show))
+import UnliftIO.Async as E (concurrently, concurrently_, mapConcurrently)
 import UnliftIO.Exception as E
   ( Exception,
     IOException,
     bracket,
+    finally,
     try,
     tryJust,
   )

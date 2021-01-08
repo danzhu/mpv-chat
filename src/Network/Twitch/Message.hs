@@ -3,6 +3,7 @@ module Network.Twitch.Message
   )
 where
 
+import Data.Aeson (FromJSON)
 import Network.Twitch.Fragment (Fragment)
 
 data Message = Message

@@ -10,6 +10,7 @@ module Network.Twitch.Bttv
   )
 where
 
+import Data.Aeson (FromJSON)
 import Network.Request (request)
 import qualified Network.Twitch as Tv
 

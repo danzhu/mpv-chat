@@ -6,6 +6,7 @@ module Network.Twitch.Channel
   )
 where
 
+import Data.Aeson (FromJSON)
 import Network.Twitch.User (UserId)
 import Text.Megaparsec
   ( Parsec,
@@ -32,7 +33,7 @@ userChannel :: UserId -> ChannelId
 userChannel uid = ChannelId $ read $ show uid
 
 parseChannelId :: Text -> Either String ChannelId
-parseChannelId = first errorBundlePretty . runParser (p <* eof) ""
+parseChannelId = left errorBundlePretty . runParser (p <* eof) ""
   where
     p :: Parser ChannelId
     p = ChannelId <$> decimal

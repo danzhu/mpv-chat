@@ -3,6 +3,7 @@ module Network.Twitch.Comment
   )
 where
 
+import Data.Aeson (FromJSON)
 import Network.Twitch.Message (Message)
 import Network.Twitch.User (User)
 

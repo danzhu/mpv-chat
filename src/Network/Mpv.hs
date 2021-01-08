@@ -18,9 +18,11 @@ import Control.Monad.Catch
   ( MonadThrow,
     throwM,
   )
-import Control.Monad.RWS (ask)
 import Data.Aeson
-  ( Value (Null),
+  ( FromJSON (parseJSON),
+    KeyValue ((.=)),
+    ToJSON (toJSON),
+    Value (Null),
     eitherDecodeStrict',
     encode,
     object,
@@ -34,6 +36,7 @@ import Data.Aeson
   )
 import Data.Aeson.Types (parseEither)
 import qualified Data.ByteString.Char8 as BC
+import Data.Conduit (runConduit, (.|))
 import qualified Data.Conduit.Combinators as C
 import Data.Conduit.Network.Unix
   ( AppDataUnix,

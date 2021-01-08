@@ -6,6 +6,7 @@ module Network.Twitch.Video
   )
 where
 
+import Data.Aeson (FromJSON)
 import Network.Twitch.Channel (Channel)
 import Text.Megaparsec
   ( Parsec,
@@ -44,7 +45,7 @@ data Images a = Images
   deriving anyclass (FromJSON, Hashable)
 
 parseVideoId :: Text -> Either String VideoId
-parseVideoId = first errorBundlePretty . runParser (p <* eof) ""
+parseVideoId = left errorBundlePretty . runParser (p <* eof) ""
   where
     p :: Parser VideoId
     p = VideoId <$> decimal

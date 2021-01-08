@@ -13,17 +13,12 @@ import Control.Concurrent.Task
     withEmptyTask,
     withTask_,
   )
-import Control.Monad (void)
 import Control.Monad.ContT (contT_)
-import Control.Monad.RWS
-  ( asks,
-    tell,
-  )
-import Data.Aeson (encode)
+import Data.Aeson (ToJSON, encode)
+import Data.Conduit (ConduitT, runConduit, yield, (.|))
 import qualified Data.Conduit.Combinators as C
 import Data.Maybe (fromJust)
 import qualified Data.SeekBuffer as SB
-import Data.String (IsString)
 import Data.Text.IO (putStrLn)
 import Lucid.Base
   ( Html,

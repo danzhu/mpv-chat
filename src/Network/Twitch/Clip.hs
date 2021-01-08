@@ -6,6 +6,8 @@ module Network.Twitch.Clip
   )
 where
 
+import Data.Aeson (FromJSON)
+
 -- | Clip id.
 newtype Slug = Slug Text
   deriving newtype (Eq, Ord, Show, FromJSON, Hashable)

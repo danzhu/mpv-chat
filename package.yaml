@@ -1,15 +1,21 @@
 name: mpv-chat
 
 default-extensions:
+  - BlockArguments
+  - DataKinds
   - DeriveAnyClass
   - DeriveGeneric
   - DerivingStrategies
   - DisambiguateRecordFields
+  - EmptyCase
+  - FlexibleInstances
+  - FunctionalDependencies
   - GeneralizedNewtypeDeriving
   - LambdaCase
   - MultiWayIf
   - NamedFieldPuns
   - OverloadedStrings
+  - PatternSynonyms
   - ScopedTypeVariables
   - TupleSections
   - TypeApplications
