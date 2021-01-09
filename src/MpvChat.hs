@@ -211,11 +211,12 @@ fmtComment :: Tv.Comment -> Fmt ()
 fmtComment
   Tv.Comment
     { message = Tv.Message {user_color, fragments},
-      commenter = usr@Tv.User {name}
+      commenter = usr@Tv.User {display_name, name}
     } = do
     hls <- asks snd
+    let hl = member name hls
     li_
-      [ class_ $ bool "comment" "comment highlight" $ member name hls
+      [ class_ $ bool "comment" "comment highlight" hl
       ]
       $ do
         a_
@@ -224,7 +225,14 @@ fmtComment
             href_ $ "/user/" <> name
           ]
           $ fmtUser usr
-        div_ [class_ "message"] $
+        div_ [class_ "message"] do
+          when hl do
+            span_
+              [ class_ "name",
+                style_ $ maybe "" ("color: " <>) user_color
+              ]
+              $ toHtml display_name
+            ": "
           traverse_ fmtFragment fragments
 
 fmtUser :: Tv.User -> Fmt ()
