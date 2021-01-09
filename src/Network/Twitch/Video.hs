@@ -7,7 +7,7 @@ module Network.Twitch.Video
 where
 
 import Data.Aeson (FromJSON)
-import Data.Time.Clock (NominalDiffTime)
+import Data.Time.Clock (NominalDiffTime, UTCTime)
 import Network.Twitch.Channel (Channel)
 import Text.Megaparsec
   ( Parsec,
@@ -28,6 +28,7 @@ data Video = Video
   { title :: Text,
     views :: Int,
     url :: Text,
+    published_at :: UTCTime,
     game :: Maybe Text,
     length :: NominalDiffTime,
     preview :: Images Text,

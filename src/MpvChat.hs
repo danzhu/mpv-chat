@@ -314,6 +314,7 @@ renderVideos Tv.User {display_name, bio} vs = do
          { title,
            views,
            url,
+           published_at,
            game,
            length = len,
            preview = Tv.Images {large}
@@ -324,6 +325,8 @@ renderVideos Tv.User {display_name, bio} vs = do
               div_ [class_ "info"] $ do
                 h3_ [class_ "title", title_ title] $ toHtml title
                 p_ $ do
+                  toHtml $ formatTime defaultTimeLocale "%F" published_at
+                  ", "
                   renderTime len
                   ", "
                   toHtml $ tshow views
