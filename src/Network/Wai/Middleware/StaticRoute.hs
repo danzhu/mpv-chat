@@ -34,7 +34,10 @@ import Network.Wai
     responseBuilder,
   )
 
-routeMethod :: (Status -> Application) -> [(Method, Application)] -> Application
+routeMethod ::
+  (Status -> Application) ->
+  [(Method, Application)] ->
+  Application
 routeMethod err apps req res
   | Just app <- lookup m apps = app req res
   | m == methodOptions = do
@@ -44,7 +47,10 @@ routeMethod err apps req res
   where
     m = requestMethod req
 
-routeAccept :: (Status -> Application) -> [(MediaType, Application)] -> Application
+routeAccept ::
+  (Status -> Application) ->
+  [(MediaType, Application)] ->
+  Application
 routeAccept err apps = join $ fromMaybe none . mapAccept apps . accept
   where
     none = err notAcceptable406

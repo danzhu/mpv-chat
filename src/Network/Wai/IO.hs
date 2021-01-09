@@ -75,7 +75,11 @@ responseRedirect :: ByteString -> Response
 -- TODO: show location in body (maybe link), and optionally js redirect
 responseRedirect l = responsePlainStatus temporaryRedirect307 [(hLocation, l)]
 
-responseSource :: Status -> ResponseHeaders -> ConduitT () Builder IO () -> Response
+responseSource ::
+  Status ->
+  ResponseHeaders ->
+  ConduitT () Builder IO () ->
+  Response
 responseSource s hs bs = responseStream s hs body
   where
     body write flush = runConduit $ bs .| C.mapM_ send

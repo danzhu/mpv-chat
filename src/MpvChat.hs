@@ -333,7 +333,12 @@ renderVideos Tv.User {display_name, bio} vs = do
                   " views"
                 for_ game $ p_ [class_ "game"] . toHtml
               div_ [class_ "actions"] $
-                button_ [class_ "load", data_ "post" "/loadfile", data_ "body" url] "|>"
+                button_
+                  [ class_ "load",
+                    data_ "post" "/loadfile",
+                    data_ "body" url
+                  ]
+                  "|>"
 
 reseek :: ChatState -> ChatState
 reseek st = play . _Just %~ upd $ st
