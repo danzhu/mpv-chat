@@ -44,7 +44,7 @@ import Control.Category (id)
 import Control.Category as E (Category ((.)))
 import Control.Concurrent.STM.TVar as E (stateTVar)
 import Control.Monad as E
-  ( Monad (return, (>>=)),
+  ( Monad ((>>=)),
     MonadFail (fail),
     MonadPlus,
     forever,
@@ -165,7 +165,6 @@ import Data.Hashable as E (Hashable)
 import Data.Int as E (Int)
 import Data.IntMap.Strict as E (IntMap)
 import Data.IntSet as E (IntSet)
-import Data.List as E ((++))
 import Data.List.NonEmpty as E (NonEmpty)
 import Data.Map.Strict as E (Map)
 import Data.Maybe as E (Maybe (Just, Nothing), fromMaybe, isJust, maybe)

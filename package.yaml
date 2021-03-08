@@ -74,6 +74,9 @@ library:
     - unliftio-core
     - wai
     - warp
+  when:
+    - condition: false
+      other-modules: Paths_mpv_chat
 
 executables:
   mpv-chat:
@@ -86,3 +89,6 @@ executables:
     dependencies:
       - mpv-chat
       - optparse-applicative
+    when:
+      - condition: false
+        other-modules: Paths_mpv_chat
