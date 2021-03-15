@@ -52,6 +52,7 @@ import Lucid.Html5
   )
 import Network.HTTP.Types.Status
   ( Status,
+    notFound404,
     ok200,
   )
 import Network.Mpv
@@ -63,6 +64,7 @@ import Network.Mpv
     observeProperty,
     runMpv,
   )
+import Network.Request (statusErr)
 import qualified Network.Twitch as Tv
 import qualified Network.Twitch.Bttv as Bt
 import qualified Network.Twitch.Channel
@@ -201,11 +203,21 @@ loadEmotes cid =
   liftIO $
     fold
       <$> mapConcurrently
-        identity
+        handle
         [ bttvGlobal <$> Bt.getGlobal,
           bttvChannel <$> Bt.getChannel cid,
           ffz <$> Fz.getChannel cid
         ]
+  where
+    -- some channels don't have e.g. ffz emotes which results in 404s,
+    -- so handle them instead of crashing
+    handle :: Monoid a => IO a -> IO a
+    handle m =
+      tryJust (statusErr (== notFound404)) m >>= \case
+        Left _ -> do
+          putStrLn "emote loading failed with 404"
+          pure mempty
+        Right a -> pure a
 
 fmtComment :: Tv.Comment -> Fmt ()
 fmtComment
