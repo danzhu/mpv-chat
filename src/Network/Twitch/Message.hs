@@ -7,7 +7,8 @@ import Data.Aeson (FromJSON)
 import Network.Twitch.Fragment (Fragment)
 
 data Message = Message
-  { fragments :: NonEmpty Fragment,
+  { body :: Text,
+    fragments :: Maybe (NonEmpty Fragment),
     user_color :: Maybe Text
   }
   deriving stock (Eq, Generic, Show)

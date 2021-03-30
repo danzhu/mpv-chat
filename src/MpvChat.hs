@@ -222,7 +222,7 @@ loadEmotes cid =
 fmtComment :: Tv.Comment -> Fmt ()
 fmtComment
   Tv.Comment
-    { message = Tv.Message {user_color, fragments},
+    { message = Tv.Message {body, fragments, user_color},
       commenter = usr@Tv.User {display_name, name}
     } = do
     hls <- asks snd
@@ -245,7 +245,11 @@ fmtComment
               ]
               $ toHtml display_name
             ": "
-          traverse_ fmtFragment fragments
+          -- HACK: for some unknown reason a message may not contain fragments
+          -- (might be user_notice_params: { msg-id: highlighted-message }),
+          -- treat the whole body as one fragment instead
+          let frags = fromMaybe (point $ Tv.Fragment body Nothing) fragments
+          traverse_ fmtFragment frags
 
 fmtUser :: Tv.User -> Fmt ()
 fmtUser Tv.User {display_name, bio} =
