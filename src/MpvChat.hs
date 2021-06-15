@@ -4,6 +4,7 @@
 module MpvChat
   ( Config (..),
     Tv.Auth (..),
+    Highlights,
     runMpvChat,
   )
 where

@@ -1,6 +1,11 @@
 module Network.Mpv
   ( Mpv,
     MpvError (..),
+    Prop,
+    Error,
+    Event,
+    CommandType (commandValue),
+    LoadData,
     command,
     eventChan,
     getProperty,
