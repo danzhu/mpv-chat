@@ -28,7 +28,7 @@ data Video = Video
   { title :: Text,
     views :: Int,
     url :: Text,
-    published_at :: UTCTime,
+    published_at :: Maybe UTCTime,
     game :: Maybe Text,
     length :: NominalDiffTime,
     preview :: Images Text,

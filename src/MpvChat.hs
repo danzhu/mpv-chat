@@ -20,7 +20,7 @@ import qualified Data.Conduit.Combinators as C
 import Data.Maybe (fromJust)
 import qualified Data.SeekBuffer as SB
 import Data.Text.IO (putStrLn)
-import Data.Time.Clock (NominalDiffTime)
+import Data.Time.Clock (NominalDiffTime, UTCTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import Lucid.Base
   ( Html,
@@ -303,6 +303,9 @@ format
 renderTime :: NominalDiffTime -> Html ()
 renderTime = toHtml . formatTime defaultTimeLocale "%h:%2M:%2S"
 
+renderDate :: UTCTime -> Html ()
+renderDate = toHtml . formatTime defaultTimeLocale "%F"
+
 renderComments :: ([Comment] -> [Comment]) -> ChatState -> Html ()
 renderComments f st = case st ^. play of
   Nothing -> pre_ "idle"
@@ -341,7 +344,7 @@ renderVideos Tv.User {display_name, bio} vs = do
               div_ [class_ "info"] $ do
                 h3_ [class_ "title", title_ title] $ toHtml title
                 p_ $ do
-                  toHtml $ formatTime defaultTimeLocale "%F" published_at
+                  maybe "<no-date>" renderDate published_at
                   ", "
                   renderTime len
                   ", "
