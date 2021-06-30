@@ -30,12 +30,16 @@ ghc-options:
   - -Wno-missing-exported-signatures
   - -Wno-missing-import-lists
   - -Wno-missing-local-signatures
+  - -Wno-missing-safe-haskell-mode
   - -Wno-monomorphism-restriction
+  - -Wno-prepositive-qualified-module
   - -Wno-safe
   - -Wno-unsafe
 
 dependencies:
-  - base-noprelude
+  - name: base
+    mixin:
+      - hiding (Prelude)
 
 library:
   source-dirs: src
