@@ -15,6 +15,7 @@ default-extensions:
   - LambdaCase
   - MultiWayIf
   - NamedFieldPuns
+  - OverloadedLabels
   - OverloadedStrings
   - PatternSynonyms
   - ScopedTypeVariables
@@ -22,6 +23,8 @@ default-extensions:
   - TupleSections
   - TypeApplications
   - TypeFamilies
+  - TypeOperators
+  - UndecidableInstances
   - ViewPatterns
 
 ghc-options:
@@ -71,10 +74,10 @@ library:
     - http-types
     - lucid
     - megaparsec
-    - microlens
-    - microlens-th
     - mime-types
     - mono-traversable
+    - optics-core
+    - optics-th
     - scientific
     - sqlite-simple
     - unliftio

@@ -279,22 +279,49 @@ import GHC.Num as E
   )
 import GHC.Real as E (RealFrac (ceiling, floor, round, truncate))
 import GHC.Stack as E (HasCallStack)
-import Lens.Micro as E
-  ( (%~),
-    (.~),
-    (?~),
-    (^.),
-    (^?),
-    _Just,
-    _Left,
-    _Nothing,
-    _Right,
-    _head,
-    _init,
-    _last,
-    _tail,
+import Optics.Each.Core as E (each)
+import Optics.Fold as E
+  ( allOf,
+    andOf,
+    anyOf,
+    asumOf,
+    elemOf,
+    findOf,
+    foldMapOf,
+    foldOf,
+    foldlOf',
+    foldrOf,
+    forOf_,
+    headOf,
+    lastOf,
+    lengthOf,
+    lookupOf,
+    maximumOf,
+    minimumOf,
+    noneOf,
+    notElemOf,
+    orOf,
+    productOf,
+    sequenceOf_,
+    sumOf,
+    traverseOf_,
   )
-import Lens.Micro.TH as E (makeLenses)
+import Optics.Operators as E
+  ( (!~),
+    (#),
+    (%!~),
+    (?!~),
+    (^.),
+    (^..),
+    (^?),
+  )
+import Optics.Optic as E ((%))
+import Optics.TH as E (makeFieldLabelsNoPrefix)
+import Optics.Traversal as E
+  ( forOf,
+    sequenceOf,
+    traverseOf,
+  )
 import System.IO as E (FilePath, IO)
 import Text.Read as E (Read, readMaybe)
 import Text.Show as E (Show (show))

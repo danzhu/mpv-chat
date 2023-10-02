@@ -49,12 +49,7 @@ appFile err fp = case mimeByExt $ fromList $ takeFileName fp of
         Right _ -> res $ responseFile ok200 hs fp Nothing
 
 appStatic :: (Status -> Application) -> FilePath -> Application
-appStatic err dir req res
+appStatic err dir req@(pathInfo -> path) res
   | any (isPrefixOf ".") path = err forbidden403 req res
-  | null fn = res $ responseRedirect "index.html"
-  | otherwise = routeGet err (appFile err fp) req res
-  where
-    path = pathInfo req
-    -- due to Monoid instance, empty path returns empty string
-    fn = path ^. _last
-    fp = joinPath $ dir : map toList path
+  | maybe True null $ lastOf each path = res $ responseRedirect "index.html"
+  | otherwise = routeGet err (appFile err $ joinPath $ dir : map toList path) req res

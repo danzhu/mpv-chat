@@ -156,11 +156,13 @@ data User = User
   }
 
 data Badge = Badge
-  { _id :: Text
-  -- , version :: Text
+  { _id :: Text,
+    version :: Text
   }
   deriving stock (Generic)
   deriving anyclass (FromJSON)
+
+makeFieldLabelsNoPrefix ''Badge
 
 data Highlight
   = NoHighlight
@@ -177,13 +179,13 @@ data Comment = Comment
   }
 
 data ChatState = ChatState
-  { _video :: Maybe Video,
-    _playbackTime :: Maybe NominalDiffTime,
-    _delay :: NominalDiffTime,
-    _version :: Int
+  { video :: Maybe Video,
+    playbackTime :: Maybe NominalDiffTime,
+    delay :: NominalDiffTime,
+    version :: Int
   }
 
-makeLenses ''ChatState
+makeFieldLabelsNoPrefix ''ChatState
 
 instance Default ChatState where
   def = ChatState Nothing Nothing 0 0
@@ -322,9 +324,9 @@ renderComments :: Connection -> ChatState -> HtmlT IO ()
 renderComments
   conn
   ChatState
-    { _video = Just Video {id = vid, createdAt = startTime, emotes},
-      _playbackTime = Just playbackTime,
-      _delay = delay
+    { video = Just Video {id = vid, createdAt = startTime, emotes},
+      playbackTime = Just playbackTime,
+      delay
     } =
     do
       let subTime = playbackTime - delay
@@ -381,7 +383,7 @@ renderComments
                   hl = maybe NoHighlight (bool NameOnly Highlight) highlight
                   hlMod =
                     bool NoHighlight NameOnly $
-                      any (\Badge {_id} -> _id == "moderator") (badges :: [Badge])
+                      elemOf (each % #_id) "moderator" (badges :: [Badge])
                   c =
                     Comment
                       { createdAt,
@@ -441,7 +443,7 @@ runMpvChat Config {ipcPath, port, online} = evalContT $ do
           st <- atomically $ do
             st <- readTVar chatState
             cur <- readTVar ver
-            let new = st ^. version
+            let new = st ^. #version
             guard $ cur < new
             writeTVar ver new
             pure st
@@ -472,7 +474,7 @@ runMpvChat Config {ipcPath, port, online} = evalContT $ do
           "doc" : _ -> wai $ appStatic err installPath
           -- static
           _ -> wai $ appStatic err "public"
-      update f = modifyTVar' chatState $ (version %~ succ) . f
+      update f = modifyTVar' chatState $ (#version %!~ succ) . f
       load vid = startTask taskLoad $ do
         [(createdAt, channelId)] <-
           query
@@ -488,11 +490,11 @@ runMpvChat Config {ipcPath, port, online} = evalContT $ do
         atomically $ do
           -- TODO: fix glitch where playback-time from last video is used before
           -- the new video is loaded
-          update $ video ?~ Video {id = vid, createdAt, channelId, emotes}
+          update $ #video ?!~ Video {id = vid, createdAt, channelId, emotes}
           writeTVar seek True
       unload =
         startTask taskLoad $
-          atomically $ update $ video .~ Nothing
+          atomically $ update $ #video !~ Nothing
       setup = do
         observeProperty mpv "filename/no-ext" $ \case
           Nothing -> unload
@@ -501,8 +503,7 @@ runMpvChat Config {ipcPath, port, online} = evalContT $ do
             Left _ -> unload
             Right vid -> load vid
         observeProperty mpv "pause" $ atomically . writeTVar active . not
-        observeProperty mpv "sub-delay" $ \d ->
-          atomically $ update $ delay .~ d
+        observeProperty mpv "sub-delay" $ atomically . update . (#delay !~)
         observeEvent mpv "seek" $ atomically $ writeTVar seek True
 
   contT_ $ withTask_ $ runSettings settings $ runWai app
@@ -511,7 +512,7 @@ runMpvChat Config {ipcPath, port, online} = evalContT $ do
       forever $ do
         timeout <- registerDelay 1_000_000
         atomically $ do
-          guard . isJust . (^. video) =<< readTVar chatState
+          guard . isJust . (^. #video) =<< readTVar chatState
           readTVar seek >>= \case
             True -> writeTVar seek False
             False -> do
@@ -521,5 +522,5 @@ runMpvChat Config {ipcPath, port, online} = evalContT $ do
             unavail _ = Nothing
         tryJust unavail (getProperty mpv "playback-time") >>= \case
           Left () -> pure ()
-          Right t -> atomically $ update $ playbackTime .~ t
+          Right t -> atomically $ update $ #playbackTime !~ t
   lift $ runMpv mpv ipcPath `concurrently_` setup
