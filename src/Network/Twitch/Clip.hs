@@ -18,14 +18,14 @@ data Thumbnails = Thumbnails
     tiny :: Text
   }
   deriving stock (Generic, Show)
-  deriving anyclass (FromJSON, Hashable)
+  deriving anyclass (FromJSON)
 
 data Clip = Clip
   { title :: Text,
     thumbnails :: Thumbnails
   }
   deriving stock (Generic, Show)
-  deriving anyclass (FromJSON, Hashable)
+  deriving anyclass (FromJSON)
 
 parseSlug :: Text -> Either String Slug
 parseSlug = pure . Slug

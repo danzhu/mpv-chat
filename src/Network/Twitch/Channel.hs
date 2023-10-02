@@ -7,6 +7,8 @@ module Network.Twitch.Channel
 where
 
 import Data.Aeson (FromJSON)
+import Database.SQLite.Simple.FromField (FromField)
+import Database.SQLite.Simple.ToField (ToField)
 import Network.Twitch.User (UserId)
 import Text.Megaparsec
   ( Parsec,
@@ -20,7 +22,7 @@ import Text.Read (read)
 type Parser = Parsec Void Text
 
 newtype ChannelId = ChannelId Int
-  deriving newtype (Eq, FromJSON, Hashable, Ord, Show)
+  deriving newtype (Eq, FromJSON, Hashable, Ord, Show, FromField, ToField)
 
 newtype Channel = Channel
   { _id :: ChannelId

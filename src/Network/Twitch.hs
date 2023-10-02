@@ -34,6 +34,7 @@ import Data.Aeson
     (.:?),
   )
 import Data.Conduit (ConduitT, yield)
+import Data.String (IsString (fromString))
 import GHC.TypeLits
   ( KnownSymbol,
     Symbol,
@@ -84,11 +85,11 @@ data Paged (n :: Symbol) a = Paged
 instance (KnownSymbol n, FromJSON a) => FromJSON (Paged n a) where
   parseJSON = withObject "Paged" $ \v ->
     Paged
-      <$> v .: fromList (symbolVal @n Proxy)
+      <$> v .: fromString (symbolVal @n Proxy)
       <*> v .:? "_next"
 
 emoteUrl :: Text -> Text
-emoteUrl i = "//static-cdn.jtvnw.net/emoticons/v1/" <> i <> "/2.0"
+emoteUrl i = "https://static-cdn.jtvnw.net/emoticons/v1/" <> i <> "/2.0"
 
 rootUrl :: Text
 rootUrl = "https://api.twitch.tv/v5"

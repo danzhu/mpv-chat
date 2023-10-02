@@ -42,7 +42,7 @@ channelUrl :: Tv.ChannelId -> Text
 channelUrl c = rootUrl <> "/cached/users/twitch/" <> tshow c
 
 emoteUrl :: Text -> Text
-emoteUrl i = "//cdn.betterttv.net/emote/" <> i <> "/2x"
+emoteUrl i = "https://cdn.betterttv.net/emote/" <> i <> "/2x"
 
 getGlobal :: MonadIO m => m Global
 getGlobal = request globalUrl [] []

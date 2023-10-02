@@ -5,12 +5,11 @@ module Network.Twitch.User
 where
 
 import Data.Aeson (FromJSON)
+import Database.SQLite.Simple.FromField (FromField)
+import Database.SQLite.Simple.ToField (ToField)
 
-newtype UserId = UserId Text
-  deriving newtype (Eq, FromJSON, Hashable, Ord)
-
-instance Show UserId where
-  show (UserId i) = toList i
+newtype UserId = UserId Int
+  deriving newtype (Eq, Show, FromJSON, Hashable, Ord, FromField, ToField)
 
 data User = User
   { _id :: UserId,

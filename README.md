@@ -12,14 +12,13 @@ stack build
 
 ## Usage
 
-A Twitch client ID is required; see Twitch developer documentation for how to
-acquire one.
+TODO: document chat import process
 
 In project root directory, run:
 
 ``` shell
 mpv --input-ipc-server=mpv_ipc <twitch_vod_url>
-stack exec -- mpv-chat --ipc-path=mpv_ipc --client-id=<twitch_client_id>
+stack exec -- mpv-chat --ipc-path=mpv_ipc
 firefox http://localhost:8192/
 ```
 

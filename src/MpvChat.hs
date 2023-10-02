@@ -3,8 +3,6 @@
 
 module MpvChat
   ( Config (..),
-    Tv.Auth (..),
-    Highlights,
     runMpvChat,
   )
 where
@@ -15,35 +13,36 @@ import Control.Concurrent.Task
     withTask_,
   )
 import Control.Monad.ContT (contT_)
-import Data.Aeson (ToJSON, encode)
-import Data.Conduit (ConduitT, runConduit, yield, (.|))
+import Data.Aeson (ToJSON, eitherDecodeStrict', encode)
+import Data.ByteString.Builder (byteString)
+import Data.Conduit (ConduitT, yield, (.|))
 import qualified Data.Conduit.Combinators as C
 import Data.Maybe (fromJust)
-import qualified Data.SeekBuffer as SB
 import Data.Text.IO (putStrLn)
-import Data.Time.Clock (NominalDiffTime, UTCTime)
+import Data.Time.Clock (NominalDiffTime, UTCTime, addUTCTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
+import Database.SQLite.Simple
+  ( Connection,
+    Only (Only, fromOnly),
+    query,
+    query_,
+    withConnection,
+  )
 import Lucid.Base
-  ( Html,
-    HtmlT,
+  ( HtmlT,
     renderBST,
-    renderText,
+    renderTextT,
     toHtml,
     toHtmlRaw,
   )
 import Lucid.Html5
   ( a_,
     alt_,
-    button_,
     class_,
-    data_,
     div_,
-    h1_,
-    h3_,
     href_,
     img_,
     li_,
-    p_,
     pre_,
     span_,
     src_,
@@ -68,14 +67,9 @@ import Network.Mpv
 import Network.Request (statusErr)
 import qualified Network.Twitch as Tv
 import qualified Network.Twitch.Bttv as Bt
-import qualified Network.Twitch.Channel
-import qualified Network.Twitch.Comment
 import qualified Network.Twitch.Emoticon
 import qualified Network.Twitch.Ffz as Fz
 import qualified Network.Twitch.Fragment
-import qualified Network.Twitch.Message
-import qualified Network.Twitch.User
-import qualified Network.Twitch.Video
 import Network.URI
   ( parseURI,
     uriAuthority,
@@ -83,6 +77,7 @@ import Network.URI
 import Network.Wai
   ( Application,
     pathInfo,
+    responseBuilder,
   )
 import Network.Wai.Application.Static
   ( appFile,
@@ -118,41 +113,58 @@ import System.FilePath.Posix (takeDirectory)
 import UnliftIO.Concurrent (threadDelay)
 import UnliftIO.Environment (getExecutablePath)
 
-newtype Scope = Scope Text
+newtype EmoteScope = EmoteScope Text
   deriving newtype (IsString)
 
-data Emote = Emote Scope Text
+data Emote = Emote EmoteScope Text
 
 type Emotes = HashMap Text Emote
 
-type Highlights = HashSet Text
+data EmoteSource
+  = DatabaseSource (HashSet Text)
+  | UrlSource Emotes
 
-type Mentions = [Text]
+twitchEmoteUrl :: EmoteSource -> Text -> Text
+twitchEmoteUrl (DatabaseSource _) id = "emote/" <> id
+twitchEmoteUrl (UrlSource _) id = Tv.emoteUrl id
 
-type Fmt = HtmlT (RWS (Emotes, Highlights) Mentions ())
+thirdPartyEmote :: EmoteSource -> Text -> Maybe Emote
+thirdPartyEmote (DatabaseSource emotes) name
+  | member name emotes = Just $ Emote "third-party" ("emote-third-party/" <> name)
+thirdPartyEmote (UrlSource emotes) name = lookup name emotes
+thirdPartyEmote _ _ = Nothing
+
+data Video = Video
+  { id :: Tv.VideoId,
+    createdAt :: UTCTime,
+    channelId :: Tv.ChannelId,
+    emotes :: EmoteSource
+  }
+
+data User = User
+  { id :: Tv.UserId,
+    displayName :: Text,
+    name :: Text,
+    bio :: Maybe Text
+  }
+
+data Highlight
+  = NoHighlight
+  | NameOnly
+  | Highlight
+  deriving stock (Eq)
 
 data Comment = Comment
-  { time :: NominalDiffTime,
-    html :: LByteString,
-    user :: Text,
-    display_user :: Text,
-    mentions :: Mentions
+  { createdAt :: UTCTime,
+    commenter :: User,
+    fragments :: [Tv.Fragment],
+    userColor :: Maybe Text,
+    highlight :: Highlight
   }
-
-data Play = Play
-  { _comments :: SB.SeekBuffer Comment,
-    _done :: Bool,
-    _current :: NominalDiffTime,
-    _latest :: NominalDiffTime
-  }
-
-makeLenses ''Play
-
-instance Default Play where
-  def = Play SB.empty False 0 0
 
 data ChatState = ChatState
-  { _play :: Maybe Play,
+  { _video :: Maybe Video,
+    _playbackTime :: Maybe NominalDiffTime,
     _delay :: NominalDiffTime,
     _version :: Int
   }
@@ -160,7 +172,7 @@ data ChatState = ChatState
 makeLenses ''ChatState
 
 instance Default ChatState where
-  def = ChatState Nothing 0 0
+  def = ChatState Nothing Nothing 0 0
 
 data View = View
   { title :: Text,
@@ -171,13 +183,12 @@ data View = View
 
 data Config = Config
   { ipcPath :: FilePath,
-    auth :: Tv.Auth,
     port :: Port,
-    highlights :: Highlights
+    online :: Bool
   }
   deriving stock (Show)
 
-bttv :: Scope -> [Bt.Emote] -> Emotes
+bttv :: EmoteScope -> [Bt.Emote] -> Emotes
 bttv s = mapFromList . map emote
   where
     emote Bt.Emote {code, id} = (code, Emote s $ Bt.emoteUrl id)
@@ -197,7 +208,7 @@ ffz = mapFromList . map emote . (Fz.emoticons <=< toList) . Fz.sets
     emote Fz.Emote {name, urls} = (name, Emote "ffz channel" url)
       where
         -- 2 (higher res image) not always available, so fallback to 1
-        url = fromJust $ asum $ (`lookup` urls) <$> [2, 1]
+        url = "https:" <> fromJust (asum $ (`lookup` urls) <$> [2, 1])
 
 loadEmotes :: MonadIO m => Tv.ChannelId -> m Emotes
 loadEmotes cid =
@@ -220,153 +231,114 @@ loadEmotes cid =
           pure mempty
         Right a -> pure a
 
-fmtComment :: Tv.Comment -> Fmt ()
+type Fmt = HtmlT (Reader EmoteSource)
+
+fmtComment :: Comment -> Fmt ()
 fmtComment
-  Tv.Comment
-    { message = Tv.Message {body, fragments, user_color},
-      commenter = usr@Tv.User {display_name, name}
+  Comment
+    { fragments,
+      commenter = commenter@User {id = commenterId, displayName},
+      userColor,
+      highlight
     } = do
-    hls <- asks snd
-    let hl = member name hls
     li_
-      [ class_ $ bool "comment" "comment highlight" hl
+      [ class_ $ bool "comment" "comment highlight" $ highlight == Highlight
       ]
       $ do
         a_
           [ class_ "icon",
-            style_ $ maybe "" ("background-color: " <>) user_color,
-            href_ $ "/user/" <> name
+            style_ $ maybe "" ("background-color: " <>) userColor,
+            -- FIXME: user page removed
+            href_ $ "/user/" <> tshow commenterId
           ]
-          $ fmtUser usr
+          $ fmtUser commenter
         div_ [class_ "message"] do
-          when hl do
+          unless (highlight == NoHighlight) do
             span_
               [ class_ "name",
-                style_ $ maybe "" ("color: " <>) user_color
+                style_ $ maybe "" ("color: " <>) userColor
               ]
-              $ toHtml display_name
+              $ toHtml displayName
             ": "
-          -- HACK: for some unknown reason a message may not contain fragments
-          -- (might be user_notice_params: { msg-id: highlighted-message }),
-          -- treat the whole body as one fragment instead
-          let frags = fromMaybe (point $ Tv.Fragment body Nothing) fragments
-          traverse_ fmtFragment frags
+          traverse_ fmtFragment fragments
 
-fmtUser :: Tv.User -> Fmt ()
-fmtUser Tv.User {display_name, bio} =
+fmtUser :: User -> Fmt ()
+fmtUser User {displayName, name, bio} =
   div_ [class_ "details"] $ do
-    span_ [class_ "name"] $ toHtml display_name
+    span_ [class_ "name"] do
+      toHtml displayName
+      " ["
+      toHtml name
+      "]"
     for_ bio $ \b -> div_ $ do
       "Bio: "
       -- FIXME: find out why there are bad chars in twitch response,
       -- which kill the output if not escaped to ascii
-      span_ [class_ "bio"] $ toHtml $ show b
+      span_ [class_ "bio"] $ toHtml b
 
 fmtFragment :: Tv.Fragment -> Fmt ()
 fmtFragment Tv.Fragment {text, emoticon}
-  | Just Tv.Emoticon {emoticon_id} <- emoticon =
-    fmtEmote "twitch" text $ Tv.emoteUrl emoticon_id
+  | Just Tv.Emoticon {emoticon_id} <- emoticon = do
+    emotes <- ask
+    fmtEmote "twitch" text $ twitchEmoteUrl emotes emoticon_id
   | otherwise = fold $ intersperse " " $ fmtWord <$> splitElem ' ' text
 
 fmtWord :: Text -> Fmt ()
 fmtWord wor =
-  asks fst >>= \emotes ->
+  ask >>= \emotes ->
     if
-        | Just (Emote ori url) <- lookup wor emotes -> fmtEmote ori wor url
+        | Just (Emote ori url) <- thirdPartyEmote emotes wor -> fmtEmote ori wor url
         | Just ('@', nam) <- uncons wor -> do
-          tell [nam]
+          -- FIXME: user page removed
           a_ [class_ "mention", href_ $ "/user/" <> nam] $ "@" <> toHtml nam
         | Just (uriAuthority -> Just _) <- parseURI $ toList wor ->
           a_ [class_ "url", href_ wor] $ toHtml wor
         | otherwise -> toHtml wor
 
-fmtEmote :: Scope -> Text -> Text -> Fmt ()
-fmtEmote (Scope ori) txt url =
+fmtEmote :: EmoteScope -> Text -> Text -> Fmt ()
+fmtEmote (EmoteScope ori) txt url =
   img_
     [ class_ "emote",
-      src_ $ "https:" <> url,
+      src_ url,
       title_ $ txt <> " [" <> ori <> "]",
       alt_ txt
     ]
 
-format :: Emotes -> Highlights -> Tv.Comment -> Comment
-format
-  es
-  hls
-  c@Tv.Comment
-    { commenter = Tv.User {name = user, display_name = display_user},
-      content_offset_seconds = time
-    } =
-    Comment {html, time, user, display_user, mentions}
-    where
-      (html, mentions) = evalRWS (renderBST $ fmtComment c) (es, hls) ()
-
-renderTime :: NominalDiffTime -> Html ()
-renderTime = toHtml . formatTime defaultTimeLocale "%h:%2M:%2S"
-
-renderDate :: UTCTime -> Html ()
-renderDate = toHtml . formatTime defaultTimeLocale "%F"
-
-renderComments :: ([Comment] -> [Comment]) -> ChatState -> Html ()
-renderComments f st = case st ^. play of
-  Nothing -> pre_ "idle"
-  Just (Play cms don cur lat) -> do
+renderComments :: Connection -> ChatState -> HtmlT IO ()
+renderComments conn st = case (st ^. video, st ^. playbackTime) of
+  (Just Video {id = vid, createdAt = videoUTC, emotes}, Just time) -> do
     pre_ $ do
-      renderTime cur
+      toHtml $ formatTime defaultTimeLocale "%h:%2M:%2S" time
       " ["
       toHtml $ tshow $ st ^. delay
-      "] / "
-      renderTime lat
-      unless don " ..."
-    if not don && null (SB.future cms)
-      then pre_ "buffering..."
-      else
-        ul_ [class_ "comments"] $
-          toHtmlRaw $ foldMap html $ f $ SB.past cms
-
-renderVideos :: Tv.User -> [Tv.Video] -> Html ()
-renderVideos Tv.User {display_name, bio} vs = do
-  h1_ $ toHtml display_name
-  for_ bio $ p_ [class_ "bio"] . toHtml . tshow
-  ul_ [class_ "videos"] $
-    for_ vs $
-      \Tv.Video
-         { title,
-           views,
-           url,
-           published_at,
-           game,
-           length = len,
-           preview = Tv.Images {large}
-         } ->
-          li_ [class_ "video"] $ do
-            img_ [class_ "preview", src_ large]
-            div_ [class_ "meta"] $ do
-              div_ [class_ "info"] $ do
-                h3_ [class_ "title", title_ title] $ toHtml title
-                p_ $ do
-                  maybe "<no-date>" renderDate published_at
-                  ", "
-                  renderTime len
-                  ", "
-                  toHtml $ tshow views
-                  " views"
-                for_ game $ p_ [class_ "game"] . toHtml
-              div_ [class_ "actions"] $
-                button_
-                  [ class_ "load",
-                    data_ "post" "/loadfile",
-                    data_ "body" url
-                  ]
-                  "|>"
-
-reseek :: ChatState -> ChatState
-reseek st = play . _Just %~ upd $ st
-  where
-    upd p = comments %~ SB.seek adv $ p
-      where
-        adv c = time c < t
-        t = p ^. current - st ^. delay
+      "]"
+    ul_ [class_ "comments"] $ do
+      comments <-
+        liftIO $
+          query
+            conn
+            "SELECT \
+            \    c.created_at, c.fragments, c.user_color, \
+            \    u.id, u.display_name, u.name, u.bio, \
+            \    f.highlight \
+            \FROM comment c \
+            \JOIN user u ON u.id = c.commenter \
+            \LEFT JOIN follow f ON f.id = u.id \
+            \WHERE c.content_id = ? AND c.created_at < ? \
+            \ORDER BY c.created_at DESC \
+            \LIMIT 500"
+            (vid, addUTCTime time videoUTC)
+      for_ comments \(createdAt, rawFragments, userColor, uid, displayName, name, bio, highlight) -> do
+        fragments <- either (liftIO . fail) pure $ eitherDecodeStrict' $ encodeUtf8 rawFragments
+        let u = User {id = uid, displayName, name, bio}
+        let hl = case highlight of
+              Just True -> Highlight
+              Just False -> NameOnly
+              Nothing -> NoHighlight
+        let c = Comment {createdAt, commenter = u, fragments, userColor, highlight = hl}
+        let html = runReader (renderBST $ fmtComment c) emotes
+        toHtmlRaw html
+  _ -> pre_ "idle"
 
 err :: Status -> Application
 err stat _ res = res $ responsePlainStatus stat []
@@ -389,37 +361,10 @@ post app = wai . routePost err . runWai $ do
   app
   pure $ responsePlainStatus ok200 []
 
-follows :: MonadIO m => Highlights -> ConduitT i View m ()
-follows hls = do
-  yield $
-    View "Follows" $
-      renderText $
-        ul_ [class_ "follows"] $
-          for_ hls $ \h ->
-            li_ [class_ "follow"] $
-              a_ [href_ $ "/channel/" <> h] $ toHtml h
-  threadDelay maxBound
-
-videos :: MonadIO m => Tv.Auth -> Text -> ConduitT i View m ()
-videos auth name = do
-  Tv.getUserByName auth name >>= \case
-    Nothing ->
-      yield $
-        View "Not Found" $
-          renderText $
-            h1_ "user not found"
-    Just user@Tv.User {_id, display_name} -> do
-      let cid = Tv.userChannel _id
-      vs <-
-        runConduit $
-          Tv.getChannelVideos auth cid
-            .| C.concat
-            .| C.sinkList
-      yield $ View display_name $ renderText $ renderVideos user vs
-  threadDelay maxBound
-
 runMpvChat :: Config -> IO ()
-runMpvChat Config {ipcPath, auth, port, highlights} = evalContT $ do
+runMpvChat Config {ipcPath, port, online} = evalContT $ do
+  conn <- ContT $ withConnection "twitch.db"
+
   chatState <- newTVarIO def
   active <- newTVarIO False
   seek <- newTVarIO False
@@ -436,7 +381,7 @@ runMpvChat Config {ipcPath, auth, port, highlights} = evalContT $ do
           & setHost "*6"
           & setPort port
           & setBeforeMainLoop entry
-      messages f = do
+      messages = do
         ver <- newTVarIO (-1)
         forever $ do
           st <- atomically $ do
@@ -446,18 +391,24 @@ runMpvChat Config {ipcPath, auth, port, highlights} = evalContT $ do
             guard $ cur < new
             writeTVar ver new
             pure st
-          yield $ View "Chat" $ renderText $ renderComments f st
+          html <- liftIO $ renderTextT $ renderComments conn st
+          yield $ View "Chat" html
           -- update at most once per 100ms
           threadDelay 100_000
       app =
         asks pathInfo >>= \case
           -- chat messages
-          [] -> page $ messages $ take 500
-          ["user", usr] -> page $ messages $ take 50 . filter p
-            where
-              p c = user c == usr || display_user c == usr
-          ["follows"] -> page $ follows highlights
-          ["channel", chan] -> page $ videos auth chan
+          [] -> page messages
+          ["emote", id] -> wai $
+            routeGet err $ \req res -> do
+              query conn "SELECT data FROM emote WHERE id = ?" (Only id) >>= \case
+                [Only bs] -> res $ responseBuilder ok200 [] $ byteString bs
+                _ -> err notFound404 req res
+          ["emote-third-party", name] -> wai $
+            routeGet err $ \req res -> do
+              query conn "SELECT data FROM emote_third_party WHERE name = ?" (Only name) >>= \case
+                [Only bs] -> res $ responseBuilder ok200 [] $ byteString bs
+                _ -> err notFound404 req res
           -- actions
           ["loadfile"] -> post $ do
             url <- join $ asks requestBS
@@ -467,28 +418,25 @@ runMpvChat Config {ipcPath, auth, port, highlights} = evalContT $ do
           "doc" : _ -> wai $ appStatic err installPath
           -- static
           _ -> wai $ appStatic err "public"
-      update f = modifyTVar' chatState $ (version %~ succ) . reseek . f
-      append cs =
-        atomically $
-          update $
-            play . _Just
-              %~ (latest %~ \t -> maybe t time $ cs ^? _last)
-                . (comments %~ SB.append cs)
+      update f = modifyTVar' chatState $ (version %~ succ) . f
       load vid = startTask taskLoad $ do
+        [(createdAt, channelId)] <-
+          query
+            conn
+            "SELECT created_at, channel_id FROM video WHERE id = ?"
+            (Only vid)
+        emotes <-
+          if online
+            then UrlSource <$> loadEmotes channelId
+            else
+              DatabaseSource . setFromList . map fromOnly
+                <$> query_ conn "SELECT name FROM emote_third_party"
         atomically $ do
-          update $ play ?~ def
+          update $ video ?~ Video {id = vid, createdAt, channelId, emotes}
           writeTVar seek True
-        Tv.Video {channel = Tv.Channel {_id = cid}} <-
-          Tv.getVideo auth vid
-        emotes <- loadEmotes cid
-        runConduit $
-          Tv.getVideoComments auth vid
-            .| C.mapE (format emotes highlights)
-            .| C.mapM_ append
-        atomically $ update $ play . _Just . done .~ True
       unload =
         startTask taskLoad $
-          atomically $ update $ play .~ Nothing
+          atomically $ update $ video .~ Nothing
       setup = do
         observeProperty mpv "filename/no-ext" $ \case
           Nothing -> unload
@@ -507,7 +455,7 @@ runMpvChat Config {ipcPath, auth, port, highlights} = evalContT $ do
       forever $ do
         timeout <- registerDelay 1_000_000
         atomically $ do
-          guard . isJust . (^. play) =<< readTVar chatState
+          guard . isJust . (^. video) =<< readTVar chatState
           readTVar seek >>= \case
             True -> writeTVar seek False
             False -> do
@@ -515,6 +463,7 @@ runMpvChat Config {ipcPath, auth, port, highlights} = evalContT $ do
               guard =<< readTVar timeout
         let unavail (MpvIpcError "property unavailable") = Just ()
             unavail _ = Nothing
-            upd t = atomically $ update $ play . _Just . current .~ t
-        either pure upd =<< tryJust unavail (getProperty mpv "playback-time")
+        tryJust unavail (getProperty mpv "playback-time") >>= \case
+          Left () -> pure ()
+          Right t -> atomically $ update $ playbackTime .~ t
   lift $ runMpv mpv ipcPath `concurrently_` setup

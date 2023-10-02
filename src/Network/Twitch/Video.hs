@@ -8,6 +8,8 @@ where
 
 import Data.Aeson (FromJSON)
 import Data.Time.Clock (NominalDiffTime, UTCTime)
+import Database.SQLite.Simple.FromField (FromField)
+import Database.SQLite.Simple.ToField (ToField)
 import Network.Twitch.Channel (Channel)
 import Text.Megaparsec
   ( Parsec,
@@ -19,8 +21,8 @@ import Text.Megaparsec.Error (errorBundlePretty)
 
 type Parser = Parsec Void Text
 
-newtype VideoId = VideoId Integer
-  deriving newtype (Eq, Hashable, Ord, Show)
+newtype VideoId = VideoId Int
+  deriving newtype (Eq, Hashable, Ord, Show, FromField, ToField)
 
 -- TODO: instance FromJSON VideoId
 

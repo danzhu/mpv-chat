@@ -5,8 +5,7 @@ where
 
 import Control.Applicative ((<**>))
 import MpvChat
-  ( Auth (Auth),
-    Config (Config),
+  ( Config (Config),
     runMpvChat,
   )
 import Options.Applicative
@@ -25,20 +24,12 @@ import Options.Applicative
     short,
     showDefault,
     str,
+    switch,
     value,
   )
 
-auth :: Parser Auth
-auth = Auth <$> cid
-  where
-    cid =
-      option str $
-        long "client-id"
-          <> metavar "ID"
-          <> help "twitch client id"
-
 config :: Parser Config
-config = Config <$> ipc <*> auth <*> por <*> hls
+config = Config <$> ipc <*> por <*> onl
   where
     ipc =
       option str $
@@ -53,13 +44,10 @@ config = Config <$> ipc <*> auth <*> por <*> hls
           <> value 8192
           <> help "server port"
           <> showDefault
-    hls =
-      map setFromList $
-        many $
-          option str $
-            long "highlight"
-              <> metavar "NAME"
-              <> help "highlight user"
+    onl =
+      switch $
+        long "online"
+          <> help "use online sources for emotes"
 
 program :: ParserInfo Config
 program =

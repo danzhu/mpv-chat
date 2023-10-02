@@ -60,6 +60,7 @@ a {
     flex-shrink: 0;
     margin: 0.5em 0;
     width: 1em;
+    min-height: 1em;
     border-radius: 0.2em;
     color: inherit;
     background-color: #a970ff;
