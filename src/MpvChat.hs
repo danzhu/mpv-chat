@@ -319,27 +319,26 @@ fmtEmote (EmoteScope ori) txt url =
     ]
 
 renderComments :: Connection -> ChatState -> HtmlT IO ()
-renderComments conn st = case (st ^. video, st ^. playbackTime) of
-  (Just Video {id = vid, createdAt = videoUTC, emotes}, Just time) -> do
-    chapters <-
-      liftIO $
-        query
-          conn
-          "SELECT description FROM chapter \
-          \WHERE video_id = ? \
-          \AND ? - start_milliseconds BETWEEN 0 AND length_milliseconds \
-          \ORDER BY start_milliseconds \
-          \LIMIT 1"
-          (vid, nominalDiffTimeToSeconds time `div'` 0.001 :: Int)
-    pre_ $ do
-      toHtml $ formatTime defaultTimeLocale "%h:%2M:%2S" time
-      for_ chapters \(Only desc) -> do
-        " "
-        toHtml (desc :: Text)
-      " ["
-      toHtml $ tshow $ st ^. delay
-      "]"
-    ul_ [class_ "comments"] $ do
+renderComments
+  conn
+  ChatState
+    { _video = Just Video {id = vid, createdAt = startTime, emotes},
+      _playbackTime = Just playbackTime,
+      _delay = delay
+    } =
+    do
+      let subTime = playbackTime - delay
+      let currentTime = addUTCTime subTime startTime
+      chapters <-
+        liftIO $
+          query
+            conn
+            "SELECT description FROM chapter \
+            \WHERE video_id = ? \
+            \AND ? - start_milliseconds BETWEEN 0 AND length_milliseconds \
+            \ORDER BY start_milliseconds \
+            \LIMIT 1"
+            (vid, nominalDiffTimeToSeconds subTime `div'` 0.001 :: Int)
       comments <-
         liftIO $
           query
@@ -354,35 +353,46 @@ renderComments conn st = case (st ^. video, st ^. playbackTime) of
             \WHERE c.content_id = ? AND c.created_at < ? \
             \ORDER BY c.created_at DESC \
             \LIMIT 500"
-            (vid, addUTCTime time videoUTC)
-      for_
-        comments
-        \( createdAt,
-           JSONField fragments,
-           JSONField badges,
-           userColor,
-           uid,
-           displayName,
-           name,
-           bio,
-           highlight
-           ) -> do
-            let u = User {id = uid, displayName, name, bio}
-                hl = maybe NoHighlight (bool NameOnly Highlight) highlight
-                hlMod =
-                  bool NoHighlight NameOnly $
-                    any (\Badge {_id} -> _id == "moderator") (badges :: [Badge])
-                c =
-                  Comment
-                    { createdAt,
-                      commenter = u,
-                      fragments,
-                      userColor,
-                      highlight = max hl hlMod
-                    }
-                html = runReader (renderBST $ fmtComment c) emotes
-            toHtmlRaw html
-  _ -> pre_ "idle"
+            (vid, currentTime)
+      pre_ $ do
+        toHtml $ formatTime defaultTimeLocale "%F %T" currentTime
+        " ["
+        toHtml $ formatTime defaultTimeLocale "%h:%2M:%2S" subTime
+        when (delay /= 0) do
+          " "
+          when (delay > 0) "+"
+          toHtml $ tshow delay
+        "] "
+      for_ chapters \(Only desc) -> div_ $ toHtml (desc :: Text)
+      ul_ [class_ "comments"] $
+        for_
+          comments
+          \( createdAt,
+             JSONField fragments,
+             JSONField badges,
+             userColor,
+             uid,
+             displayName,
+             name,
+             bio,
+             highlight
+             ) -> do
+              let u = User {id = uid, displayName, name, bio}
+                  hl = maybe NoHighlight (bool NameOnly Highlight) highlight
+                  hlMod =
+                    bool NoHighlight NameOnly $
+                      any (\Badge {_id} -> _id == "moderator") (badges :: [Badge])
+                  c =
+                    Comment
+                      { createdAt,
+                        commenter = u,
+                        fragments,
+                        userColor,
+                        highlight = max hl hlMod
+                      }
+                  html = runReader (renderBST $ fmtComment c) emotes
+              toHtmlRaw html
+renderComments _ _ = pre_ "idle"
 
 err :: Status -> Application
 err stat _ res = res $ responsePlainStatus stat []
