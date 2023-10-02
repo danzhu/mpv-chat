@@ -13,7 +13,7 @@ import Control.Concurrent.Task
     withTask_,
   )
 import Control.Monad.ContT (contT_)
-import Data.Aeson (ToJSON, eitherDecodeStrict', encode)
+import Data.Aeson (FromJSON, ToJSON, encode)
 import Data.ByteString.Builder (byteString)
 import Data.Conduit (ConduitT, yield, (.|))
 import qualified Data.Conduit.Combinators as C
@@ -34,6 +34,7 @@ import Database.SQLite.Simple
     query_,
     withConnection,
   )
+import Database.Sqlite.Adapter (JSONField (JSONField))
 import Lucid.Base
   ( HtmlT,
     renderBST,
@@ -154,11 +155,18 @@ data User = User
     bio :: Maybe Text
   }
 
+data Badge = Badge
+  { _id :: Text
+  -- , version :: Text
+  }
+  deriving stock (Generic)
+  deriving anyclass (FromJSON)
+
 data Highlight
   = NoHighlight
   | NameOnly
   | Highlight
-  deriving stock (Eq)
+  deriving stock (Eq, Ord)
 
 data Comment = Comment
   { createdAt :: UTCTime,
@@ -337,7 +345,7 @@ renderComments conn st = case (st ^. video, st ^. playbackTime) of
           query
             conn
             "SELECT \
-            \    c.created_at, c.fragments, c.user_color, \
+            \    c.created_at, c.fragments, c.user_badges, c.user_color, \
             \    u.id, u.display_name, u.name, u.bio, \
             \    f.highlight \
             \FROM comment c \
@@ -347,16 +355,33 @@ renderComments conn st = case (st ^. video, st ^. playbackTime) of
             \ORDER BY c.created_at DESC \
             \LIMIT 500"
             (vid, addUTCTime time videoUTC)
-      for_ comments \(createdAt, rawFragments, userColor, uid, displayName, name, bio, highlight) -> do
-        fragments <- either (liftIO . fail) pure $ eitherDecodeStrict' $ encodeUtf8 rawFragments
-        let u = User {id = uid, displayName, name, bio}
-        let hl = case highlight of
-              Just True -> Highlight
-              Just False -> NameOnly
-              Nothing -> NoHighlight
-        let c = Comment {createdAt, commenter = u, fragments, userColor, highlight = hl}
-        let html = runReader (renderBST $ fmtComment c) emotes
-        toHtmlRaw html
+      for_
+        comments
+        \( createdAt,
+           JSONField fragments,
+           JSONField badges,
+           userColor,
+           uid,
+           displayName,
+           name,
+           bio,
+           highlight
+           ) -> do
+            let u = User {id = uid, displayName, name, bio}
+                hl = maybe NoHighlight (bool NameOnly Highlight) highlight
+                hlMod =
+                  bool NoHighlight NameOnly $
+                    any (\Badge {_id} -> _id == "moderator") (badges :: [Badge])
+                c =
+                  Comment
+                    { createdAt,
+                      commenter = u,
+                      fragments,
+                      userColor,
+                      highlight = max hl hlMod
+                    }
+                html = runReader (renderBST $ fmtComment c) emotes
+            toHtmlRaw html
   _ -> pre_ "idle"
 
 err :: Status -> Application
