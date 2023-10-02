@@ -17,9 +17,15 @@ import Data.Aeson (ToJSON, eitherDecodeStrict', encode)
 import Data.ByteString.Builder (byteString)
 import Data.Conduit (ConduitT, yield, (.|))
 import qualified Data.Conduit.Combinators as C
+import Data.Fixed (div')
 import Data.Maybe (fromJust)
 import Data.Text.IO (putStrLn)
-import Data.Time.Clock (NominalDiffTime, UTCTime, addUTCTime)
+import Data.Time.Clock
+  ( NominalDiffTime,
+    UTCTime,
+    addUTCTime,
+    nominalDiffTimeToSeconds,
+  )
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import Database.SQLite.Simple
   ( Connection,
@@ -307,8 +313,21 @@ fmtEmote (EmoteScope ori) txt url =
 renderComments :: Connection -> ChatState -> HtmlT IO ()
 renderComments conn st = case (st ^. video, st ^. playbackTime) of
   (Just Video {id = vid, createdAt = videoUTC, emotes}, Just time) -> do
+    chapters <-
+      liftIO $
+        query
+          conn
+          "SELECT description FROM chapter \
+          \WHERE video_id = ? \
+          \AND ? - start_milliseconds BETWEEN 0 AND length_milliseconds \
+          \ORDER BY start_milliseconds \
+          \LIMIT 1"
+          (vid, nominalDiffTimeToSeconds time `div'` 0.001 :: Int)
     pre_ $ do
       toHtml $ formatTime defaultTimeLocale "%h:%2M:%2S" time
+      for_ chapters \(Only desc) -> do
+        " "
+        toHtml (desc :: Text)
       " ["
       toHtml $ tshow $ st ^. delay
       "]"
@@ -432,6 +451,8 @@ runMpvChat Config {ipcPath, port, online} = evalContT $ do
               DatabaseSource . setFromList . map fromOnly
                 <$> query_ conn "SELECT name FROM emote_third_party"
         atomically $ do
+          -- TODO: fix glitch where playback-time from last video is used before
+          -- the new video is loaded
           update $ video ?~ Video {id = vid, createdAt, channelId, emotes}
           writeTVar seek True
       unload =
