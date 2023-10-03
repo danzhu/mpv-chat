@@ -82,13 +82,8 @@ import Network.URI
     uriAuthority,
   )
 import Network.Wai
-  ( Application,
-    pathInfo,
+  ( pathInfo,
     responseBuilder,
-  )
-import Network.Wai.Application.Static
-  ( appFile,
-    appStatic,
   )
 import Network.Wai.Handler.Warp
   ( Port,
@@ -98,23 +93,20 @@ import Network.Wai.Handler.Warp
     setHost,
     setPort,
   )
-import Network.Wai.IO
-  ( eventData,
+import Network.Wai.Monad
+  ( Wai,
+    WaiApp,
+    appFile,
+    appStatic,
+    eventData,
     requestBS,
     responseEvents,
     responsePlainStatus,
     responseRedirect,
-  )
-import Network.Wai.Middleware.StaticRoute
-  ( routeAccept,
+    routeAccept,
     routeGet,
     routePost,
-  )
-import Network.Wai.Monad
-  ( Wai,
-    WaiApp,
     runWai,
-    wai,
   )
 import System.FilePath.Posix (takeDirectory)
 import UnliftIO.Concurrent (threadDelay)
@@ -396,24 +388,22 @@ renderComments
               toHtmlRaw html
 renderComments _ _ = pre_ "idle"
 
-err :: Status -> Application
-err stat _ res = res $ responsePlainStatus stat []
+err :: Status -> WaiApp
+err stat = pure $ responsePlainStatus stat []
 
 page :: ConduitT () View IO () -> WaiApp
 page vs =
-  wai $
-    routeGet err $
-      routeAccept
-        err
-        [ ("text/html", appFile err "res/page.html"),
-          ("text/event-stream", str)
-        ]
+  routeGet err $
+    routeAccept
+      err
+      [ ("text/html", appFile err "res/page.html"),
+        ("text/event-stream", pure $ responseEvents $ vs .| C.map enc)
+      ]
   where
-    str _ res = res $ responseEvents $ vs .| C.map enc
     enc v = def {eventData = encode v}
 
 post :: Wai () -> WaiApp
-post app = wai . routePost err . runWai $ do
+post app = routePost err $ do
   app
   pure $ responsePlainStatus ok200 []
 
@@ -455,25 +445,25 @@ runMpvChat Config {ipcPath, port, online} = evalContT $ do
         asks pathInfo >>= \case
           -- chat messages
           [] -> page messages
-          ["emote", id] -> wai $
-            routeGet err $ \req res -> do
-              query conn "SELECT data FROM emote WHERE id = ?" (Only id) >>= \case
-                [Only bs] -> res $ responseBuilder ok200 [] $ byteString bs
-                _ -> err notFound404 req res
-          ["emote-third-party", name] -> wai $
-            routeGet err $ \req res -> do
-              query conn "SELECT data FROM emote_third_party WHERE name = ?" (Only name) >>= \case
-                [Only bs] -> res $ responseBuilder ok200 [] $ byteString bs
-                _ -> err notFound404 req res
+          ["emote", id] ->
+            routeGet err do
+              liftIO (query conn "SELECT data FROM emote WHERE id = ?" (Only id)) >>= \case
+                [Only bs] -> pure $ responseBuilder ok200 [] $ byteString bs
+                _ -> err notFound404
+          ["emote-third-party", name] ->
+            routeGet err do
+              liftIO (query conn "SELECT data FROM emote_third_party WHERE name = ?" (Only name)) >>= \case
+                [Only bs] -> pure $ responseBuilder ok200 [] $ byteString bs
+                _ -> err notFound404
           -- actions
           ["loadfile"] -> post $ do
             url <- join $ asks requestBS
             void $ liftIO $ loadfile mpv $ decodeUtf8 url
           -- docs
           ["doc"] -> pure $ responseRedirect "/doc/all/index.html"
-          "doc" : _ -> wai $ appStatic err installPath
+          "doc" : _ -> appStatic err installPath
           -- static
-          _ -> wai $ appStatic err "public"
+          _ -> appStatic err "public"
       update f = modifyTVar' chatState $ (#version %!~ succ) . f
       load vid = startTask taskLoad $ do
         [(createdAt, channelId)] <-
