@@ -116,8 +116,6 @@ data Mpv = Mpv
     events :: TChan Event
   }
 
-type MpvIO = ReaderT Mpv IO
-
 expect :: (MonadThrow m, Exception e) => e -> Maybe a -> m a
 expect e = maybe (throwM e) pure
 
@@ -133,79 +131,75 @@ newMpvClient =
     <*> newTVarIO (IM.empty 1)
     <*> newTChanIO
 
-produce :: MpvIO ByteString
-produce = do
-  mpv <- ask
-  (cmd, wait) <- atomically $ readTBQueue $ requests mpv
-  rid <- atomically $ stateTVar (waits mpv) $ IM.insert wait
+produce :: Mpv -> IO ByteString
+produce Mpv {requests, waits} = do
+  (cmd, wait) <- atomically $ readTBQueue requests
+  rid <- atomically $ stateTVar waits $ IM.insert wait
   let line = toStrict $ encode $ ReqCommand rid True cmd
   liftIO $ BC.putStrLn $ "> " <> line
   pure line
 
-consume :: ByteString -> MpvIO ()
-consume line = do
+consume :: Mpv -> ByteString -> IO ()
+consume Mpv {events, waits} line = do
   liftIO $ BC.putStrLn $ "  " <> line
-  mpv <- ask
   res <- expectE (MpvJsonError line) $ eitherDecodeStrict' line
   case res of
-    ResEvent evt -> atomically $ writeTChan (events mpv) evt
+    ResEvent evt -> atomically $ writeTChan events evt
     ResReply rid rep -> atomically $ do
-      v <- stateTVar (waits mpv) $ IM.remove rid
+      v <- stateTVar waits $ IM.remove rid
       w <- expect MpvNoReqId v
       putTMVar w rep
 
-stdin :: AppDataUnix -> MpvIO ()
-stdin app =
+stdin :: Mpv -> AppDataUnix -> IO ()
+stdin mpv app =
   runConduit $
-    C.repeatM produce
+    C.repeatM (produce mpv)
       .| C.unlinesAscii
       .| appSink app
 
-stdout :: AppDataUnix -> MpvIO ()
-stdout app =
+stdout :: Mpv -> AppDataUnix -> IO ()
+stdout mpv app =
   runConduit $
     appSource app
       .| C.linesUnboundedAscii
-      .| C.mapM_ consume
+      .| C.mapM_ (consume mpv)
 
-handle :: MpvIO a
-handle = do
-  mpv <- ask
-  () <- liftIO $ command "disable_event" mpv ("all" :: Text)
+handle :: Mpv -> IO a
+handle mpv@Mpv {changes, handlers, events} = do
+  () <- liftIO $ command mpv "disable_event" ("all" :: Text)
   forever $
-    atomically (readTChan $ events mpv) >>= \case
+    atomically (readTChan events) >>= \case
       EvtPropChange i _ v -> do
-        h <- IM.lookup i <$> readTVarIO (changes mpv)
+        h <- IM.lookup i <$> readTVarIO changes
         liftIO $ traverse_ ($ v) h
       EvtOther e -> do
-        h <- lookup e <$> readTVarIO (handlers mpv)
+        h <- lookup e <$> readTVarIO handlers
         liftIO $ sequence_ h
 
 runMpv :: MonadIO m => Mpv -> FilePath -> m ()
 runMpv mpv ipcPath = liftIO $
   runUnixClient (clientSettings ipcPath) $ \app ->
-    flip runReaderT mpv $
-      withTask_ (stdin app `concurrently_` handle) $
-        stdout app
+    withTask_ (stdin mpv app `concurrently_` handle mpv) $
+      stdout mpv app
 
 fromJson :: FromJSON a => Value -> IO a
 fromJson = expectE MpvTypeError . parseEither parseJSON
 
 eventChan :: MonadIO m => Mpv -> m (TChan Event)
-eventChan mpv = atomically $ dupTChan $ events mpv
+eventChan Mpv {events} = atomically $ dupTChan events
 
 observeEvent :: MonadUnliftIO m => Mpv -> Text -> m () -> m ()
-observeEvent mpv e f = withRunInIO $ \run -> do
-  atomically $ modifyTVar' (handlers mpv) $ insertWith (<>) e $ run f
-  command "enable_event" mpv e
+observeEvent mpv@Mpv {handlers} e f = withRunInIO $ \run -> do
+  atomically $ modifyTVar' handlers $ insertWith (<>) e $ run f
+  command mpv "enable_event" e
 
 class CommandType a where
-  commandValue :: [Value] -> Mpv -> a
+  commandValue :: Mpv -> [Value] -> a
 
 instance FromJSON r => CommandType (IO r) where
-  commandValue args mpv = do
+  commandValue Mpv {requests} args = do
     wait <- newEmptyTMVarIO
-    atomically $ writeTBQueue (requests mpv) (reverse args, wait)
+    atomically $ writeTBQueue requests (reverse args, wait)
     reply <- atomically $ readTMVar wait
     r <- expectE MpvIpcError reply
     -- HACK: round-trip converting '()' to 'Value' and back,
@@ -213,10 +207,10 @@ instance FromJSON r => CommandType (IO r) where
     fromJson $ fromMaybe (toJSON ()) r
 
 instance (ToJSON a, CommandType c) => CommandType (a -> c) where
-  commandValue args mpv a = commandValue (toJSON a : args) mpv
+  commandValue mpv args a = commandValue mpv $ toJSON a : args
 
-command :: CommandType c => Text -> Mpv -> c
-command cmd = commandValue [toJSON cmd]
+command :: CommandType c => Mpv -> Text -> c
+command mpv = commandValue mpv []
 
 newtype LoadData = LoadData
   { playlist_entry_id :: Int
@@ -225,13 +219,13 @@ newtype LoadData = LoadData
   deriving anyclass (FromJSON)
 
 loadfile :: Mpv -> Text -> IO LoadData
-loadfile = command "loadfile"
+loadfile mpv = command mpv "loadfile"
 
 getProperty :: FromJSON a => Mpv -> Prop -> IO a
-getProperty = command "get_property"
+getProperty mpv = command mpv "get_property"
 
 setProperty :: Mpv -> Prop -> Value -> IO ()
-setProperty = command "set_property"
+setProperty mpv = command mpv "set_property"
 
 observeProperty ::
   (MonadUnliftIO m, FromJSON a) =>
@@ -239,6 +233,6 @@ observeProperty ::
   Prop ->
   (a -> m ()) ->
   m ()
-observeProperty mpv p f = withRunInIO $ \run -> do
-  i <- atomically $ stateTVar (changes mpv) $ IM.insert $ run . f <=< fromJson
-  command "observe_property" mpv i p
+observeProperty mpv@Mpv {changes} p f = withRunInIO $ \run -> do
+  i <- atomically $ stateTVar changes $ IM.insert $ run . f <=< fromJson
+  command mpv "observe_property" i p
