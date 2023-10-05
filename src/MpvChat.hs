@@ -1,5 +1,4 @@
 {-# LANGUAGE NumericUnderscores #-}
-{-# LANGUAGE TemplateHaskell #-}
 
 module MpvChat
   ( Config (..),
@@ -13,49 +12,24 @@ import Control.Concurrent.Task
     withTask_,
   )
 import Control.Monad.ContT (contT_)
-import Data.Aeson (FromJSON, ToJSON, encode)
+import Data.Aeson (ToJSON, encode)
 import Data.ByteString.Builder (byteString)
 import Data.Conduit (ConduitT, yield, (.|))
 import qualified Data.Conduit.Combinators as C
-import Data.Fixed (div')
-import Data.Maybe (fromJust)
 import Data.Text.IO (putStrLn)
-import Data.Time.Clock
-  ( NominalDiffTime,
-    UTCTime,
-    addUTCTime,
-    nominalDiffTimeToSeconds,
-  )
-import Data.Time.Format (defaultTimeLocale, formatTime)
 import Database.SQLite.Simple
-  ( Connection,
-    Only (Only, fromOnly),
+  ( Only (Only, fromOnly),
     query,
     query_,
     withConnection,
   )
-import Database.Sqlite.Adapter (JSONField (JSONField))
-import Lucid.Base
-  ( HtmlT,
-    renderBST,
-    renderTextT,
-    toHtml,
-    toHtmlRaw,
-  )
-import Lucid.Html5
-  ( a_,
-    alt_,
-    class_,
-    div_,
-    href_,
-    img_,
-    li_,
-    pre_,
-    span_,
-    src_,
-    style_,
-    title_,
-    ul_,
+import Lucid.Base (renderTextT)
+import MpvChat.Chat (renderComments)
+import MpvChat.Data (Video (Video))
+import qualified MpvChat.Data
+import MpvChat.Emote
+  ( EmoteSource (DatabaseSource, UrlSource),
+    loadEmotes,
   )
 import Network.HTTP.Types.Status
   ( Status,
@@ -71,16 +45,7 @@ import Network.Mpv
     observeProperty,
     runMpv,
   )
-import Network.Request (statusErr)
 import qualified Network.Twitch as Tv
-import qualified Network.Twitch.Bttv as Bt
-import qualified Network.Twitch.Emoticon
-import qualified Network.Twitch.Ffz as Fz
-import qualified Network.Twitch.Fragment
-import Network.URI
-  ( parseURI,
-    uriAuthority,
-  )
 import Network.Wai
   ( pathInfo,
     responseBuilder,
@@ -112,76 +77,6 @@ import System.FilePath.Posix (takeDirectory)
 import UnliftIO.Concurrent (threadDelay)
 import UnliftIO.Environment (getExecutablePath)
 
-newtype EmoteScope = EmoteScope Text
-  deriving newtype (IsString)
-
-data Emote = Emote EmoteScope Text
-
-type Emotes = HashMap Text Emote
-
-data EmoteSource
-  = DatabaseSource (HashSet Text)
-  | UrlSource Emotes
-
-twitchEmoteUrl :: EmoteSource -> Text -> Text
-twitchEmoteUrl (DatabaseSource _) id = "emote/" <> id
-twitchEmoteUrl (UrlSource _) id = Tv.emoteUrl id
-
-thirdPartyEmote :: EmoteSource -> Text -> Maybe Emote
-thirdPartyEmote (DatabaseSource emotes) name
-  | member name emotes = Just $ Emote "third-party" ("emote-third-party/" <> name)
-thirdPartyEmote (UrlSource emotes) name = lookup name emotes
-thirdPartyEmote _ _ = Nothing
-
-data Video = Video
-  { id :: Tv.VideoId,
-    createdAt :: UTCTime,
-    channelId :: Tv.ChannelId,
-    emotes :: EmoteSource
-  }
-
-data User = User
-  { id :: Tv.UserId,
-    displayName :: Text,
-    name :: Text,
-    bio :: Maybe Text
-  }
-
-data Badge = Badge
-  { _id :: Text,
-    version :: Text
-  }
-  deriving stock (Generic)
-  deriving anyclass (FromJSON)
-
-makeFieldLabelsNoPrefix ''Badge
-
-data Highlight
-  = NoHighlight
-  | NameOnly
-  | Highlight
-  deriving stock (Eq, Ord)
-
-data Comment = Comment
-  { createdAt :: UTCTime,
-    commenter :: User,
-    fragments :: [Tv.Fragment],
-    userColor :: Maybe Text,
-    highlight :: Highlight
-  }
-
-data ChatState = ChatState
-  { video :: Maybe Video,
-    playbackTime :: Maybe NominalDiffTime,
-    delay :: NominalDiffTime,
-    version :: Int
-  }
-
-makeFieldLabelsNoPrefix ''ChatState
-
-instance Default ChatState where
-  def = ChatState Nothing Nothing 0 0
-
 data View = View
   { title :: Text,
     content :: LText
@@ -195,198 +90,6 @@ data Config = Config
     online :: Bool
   }
   deriving stock (Show)
-
-bttv :: EmoteScope -> [Bt.Emote] -> Emotes
-bttv s = mapFromList . map emote
-  where
-    emote Bt.Emote {code, id} = (code, Emote s $ Bt.emoteUrl id)
-
-bttvGlobal :: Bt.Global -> Emotes
-bttvGlobal = bttv "bttv global"
-
-bttvChannel :: Bt.Channel -> Emotes
-bttvChannel = chan <> shared
-  where
-    chan = bttv "bttv channel" . Bt.channelEmotes
-    shared = bttv "bttv shared" . Bt.sharedEmotes
-
-ffz :: Fz.Channel -> Emotes
-ffz = mapFromList . map emote . (Fz.emoticons <=< toList) . Fz.sets
-  where
-    emote Fz.Emote {name, urls} = (name, Emote "ffz channel" url)
-      where
-        -- 2 (higher res image) not always available, so fallback to 1
-        url = "https:" <> fromJust (asum $ (`lookup` urls) <$> [2, 1])
-
-loadEmotes :: MonadIO m => Tv.ChannelId -> m Emotes
-loadEmotes cid =
-  liftIO $
-    fold
-      <$> mapConcurrently
-        handle
-        [ bttvGlobal <$> Bt.getGlobal,
-          bttvChannel <$> Bt.getChannel cid,
-          ffz <$> Fz.getChannel cid
-        ]
-  where
-    -- some channels don't have e.g. ffz emotes which results in 404s,
-    -- so handle them instead of crashing
-    handle :: Monoid a => IO a -> IO a
-    handle m =
-      tryJust (statusErr (== notFound404)) m >>= \case
-        Left _ -> do
-          putStrLn "emote loading failed with 404"
-          pure mempty
-        Right a -> pure a
-
-type Fmt = HtmlT (Reader EmoteSource)
-
-fmtComment :: Comment -> Fmt ()
-fmtComment
-  Comment
-    { fragments,
-      commenter = commenter@User {id = commenterId, displayName},
-      userColor,
-      highlight
-    } = do
-    li_
-      [ class_ $ bool "comment" "comment highlight" $ highlight == Highlight
-      ]
-      $ do
-        a_
-          [ class_ "icon",
-            style_ $ maybe "" ("background-color: " <>) userColor,
-            -- FIXME: user page removed
-            href_ $ "/user/" <> tshow commenterId
-          ]
-          $ fmtUser commenter
-        div_ [class_ "message"] do
-          unless (highlight == NoHighlight) do
-            span_
-              [ class_ "name",
-                style_ $ maybe "" ("color: " <>) userColor
-              ]
-              $ toHtml displayName
-            ": "
-          traverse_ fmtFragment fragments
-
-fmtUser :: User -> Fmt ()
-fmtUser User {displayName, name, bio} =
-  div_ [class_ "details"] $ do
-    span_ [class_ "name"] do
-      toHtml displayName
-      " ["
-      toHtml name
-      "]"
-    for_ bio $ \b -> div_ $ do
-      "Bio: "
-      -- FIXME: find out why there are bad chars in twitch response,
-      -- which kill the output if not escaped to ascii
-      span_ [class_ "bio"] $ toHtml b
-
-fmtFragment :: Tv.Fragment -> Fmt ()
-fmtFragment Tv.Fragment {text, emoticon}
-  | Just Tv.Emoticon {emoticon_id} <- emoticon = do
-    emotes <- ask
-    fmtEmote "twitch" text $ twitchEmoteUrl emotes emoticon_id
-  | otherwise = fold $ intersperse " " $ fmtWord <$> splitElem ' ' text
-
-fmtWord :: Text -> Fmt ()
-fmtWord wor =
-  ask >>= \emotes ->
-    if
-        | Just (Emote ori url) <- thirdPartyEmote emotes wor -> fmtEmote ori wor url
-        | Just ('@', nam) <- uncons wor -> do
-          -- FIXME: user page removed
-          a_ [class_ "mention", href_ $ "/user/" <> nam] $ "@" <> toHtml nam
-        | Just (uriAuthority -> Just _) <- parseURI $ toList wor ->
-          a_ [class_ "url", href_ wor] $ toHtml wor
-        | otherwise -> toHtml wor
-
-fmtEmote :: EmoteScope -> Text -> Text -> Fmt ()
-fmtEmote (EmoteScope ori) txt url =
-  img_
-    [ class_ "emote",
-      src_ url,
-      title_ $ txt <> " [" <> ori <> "]",
-      alt_ txt
-    ]
-
-renderComments :: Connection -> ChatState -> HtmlT IO ()
-renderComments
-  conn
-  ChatState
-    { video = Just Video {id = vid, createdAt = startTime, emotes},
-      playbackTime = Just playbackTime,
-      delay
-    } =
-    do
-      let subTime = playbackTime - delay
-      let currentTime = addUTCTime subTime startTime
-      chapters <-
-        liftIO $
-          query
-            conn
-            "SELECT description FROM chapter \
-            \WHERE video_id = ? \
-            \AND ? - start_milliseconds BETWEEN 0 AND length_milliseconds \
-            \ORDER BY start_milliseconds \
-            \LIMIT 1"
-            (vid, nominalDiffTimeToSeconds subTime `div'` 0.001 :: Int)
-      comments <-
-        liftIO $
-          query
-            conn
-            "SELECT \
-            \    c.created_at, c.fragments, c.user_badges, c.user_color, \
-            \    u.id, u.display_name, u.name, u.bio, \
-            \    f.highlight \
-            \FROM comment c \
-            \JOIN user u ON u.id = c.commenter \
-            \LEFT JOIN follow f ON f.id = u.id \
-            \WHERE c.content_id = ? AND c.created_at < ? \
-            \ORDER BY c.created_at DESC \
-            \LIMIT 500"
-            (vid, currentTime)
-      pre_ $ do
-        toHtml $ formatTime defaultTimeLocale "%F %T" currentTime
-        " ["
-        toHtml $ formatTime defaultTimeLocale "%h:%2M:%2S" subTime
-        when (delay /= 0) do
-          " "
-          when (delay > 0) "+"
-          toHtml $ tshow delay
-        "] "
-      for_ chapters \(Only desc) -> div_ $ toHtml (desc :: Text)
-      ul_ [class_ "comments"] $
-        for_
-          comments
-          \( createdAt,
-             JSONField fragments,
-             JSONField badges,
-             userColor,
-             uid,
-             displayName,
-             name,
-             bio,
-             highlight
-             ) -> do
-              let u = User {id = uid, displayName, name, bio}
-                  hl = maybe NoHighlight (bool NameOnly Highlight) highlight
-                  hlMod =
-                    bool NoHighlight NameOnly $
-                      elemOf (each % #_id) "moderator" (badges :: [Badge])
-                  c =
-                    Comment
-                      { createdAt,
-                        commenter = u,
-                        fragments,
-                        userColor,
-                        highlight = max hl hlMod
-                      }
-                  html = runReader (renderBST $ fmtComment c) emotes
-              toHtmlRaw html
-renderComments _ _ = pre_ "idle"
 
 err :: Status -> WaiApp
 err stat = pure $ responsePlainStatus stat []
