@@ -17,20 +17,10 @@ import Data.ByteString.Builder (byteString)
 import Data.Conduit (ConduitT, yield, (.|))
 import qualified Data.Conduit.Combinators as C
 import Data.Text.IO (putStrLn)
-import Database.SQLite.Simple
-  ( Only (Only, fromOnly),
-    query,
-    query_,
-    withConnection,
-  )
+import Database.SQLite.Simple (withConnection)
 import Lucid.Base (renderTextT)
 import MpvChat.Chat (renderComments)
-import MpvChat.Data (Video (Video))
-import qualified MpvChat.Data
-import MpvChat.Emote
-  ( EmoteSource (DatabaseSource, UrlSource),
-    loadEmotes,
-  )
+import MpvChat.Database (loadEmote, loadVideo)
 import Network.HTTP.Types.Status
   ( Status,
     notFound404,
@@ -135,9 +125,8 @@ runMpvChat Config {ipcPath, port, online} = evalContT $ do
         forever $ do
           st <- atomically $ do
             st <- readTVar chatState
-            cur <- readTVar ver
             let new = st ^. #version
-            guard $ cur < new
+            guard . (< new) =<< readTVar ver
             writeTVar ver new
             pure st
           html <- liftIO $ renderTextT $ renderComments conn st
@@ -150,14 +139,14 @@ runMpvChat Config {ipcPath, port, online} = evalContT $ do
           [] -> page messages
           ["emote", id] ->
             routeGet err do
-              liftIO (query conn "SELECT data FROM emote WHERE id = ?" (Only id)) >>= \case
-                [Only bs] -> pure $ responseBuilder ok200 [] $ byteString bs
-                _ -> err notFound404
+              liftIO (loadEmote conn id False) >>= \case
+                Just bs -> pure $ responseBuilder ok200 [] $ byteString bs
+                Nothing -> err notFound404
           ["emote-third-party", name] ->
             routeGet err do
-              liftIO (query conn "SELECT data FROM emote_third_party WHERE name = ?" (Only name)) >>= \case
-                [Only bs] -> pure $ responseBuilder ok200 [] $ byteString bs
-                _ -> err notFound404
+              liftIO (loadEmote conn name True) >>= \case
+                Just bs -> pure $ responseBuilder ok200 [] $ byteString bs
+                Nothing -> err notFound404
           -- actions
           ["loadfile"] -> post $ do
             url <- join $ asks requestBS
@@ -169,21 +158,11 @@ runMpvChat Config {ipcPath, port, online} = evalContT $ do
           _ -> appStatic err "public"
       update f = modifyTVar' chatState $ (#version %!~ succ) . f
       load vid = startTask taskLoad $ do
-        [(createdAt, channelId)] <-
-          query
-            conn
-            "SELECT created_at, channel_id FROM video WHERE id = ?"
-            (Only vid)
-        emotes <-
-          if online
-            then UrlSource <$> loadEmotes channelId
-            else
-              DatabaseSource . setFromList . map fromOnly
-                <$> query_ conn "SELECT name FROM emote_third_party"
+        v <- loadVideo conn vid online
         atomically $ do
           -- TODO: fix glitch where playback-time from last video is used before
           -- the new video is loaded
-          update $ #video ?!~ Video {id = vid, createdAt, channelId, emotes}
+          update $ #video ?!~ v
           writeTVar seek True
       unload =
         startTask taskLoad $
@@ -213,7 +192,6 @@ runMpvChat Config {ipcPath, port, online} = evalContT $ do
               guard =<< readTVar timeout
         let unavail (MpvIpcError "property unavailable") = Just ()
             unavail _ = Nothing
-        tryJust unavail (getProperty mpv "playback-time") >>= \case
-          Left () -> pure ()
-          Right t -> atomically $ update $ #playbackTime !~ t
+        time <- tryJust unavail $ getProperty mpv "playback-time"
+        atomically $ update $ #playbackTime !~ (time ^? _Right)
   lift $ runMpv mpv ipcPath `concurrently_` setup

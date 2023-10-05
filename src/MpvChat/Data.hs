@@ -68,4 +68,10 @@ data ChatState = ChatState
 makeFieldLabelsNoPrefix ''ChatState
 
 instance Default ChatState where
-  def = ChatState Nothing Nothing 0 0
+  def =
+    ChatState
+      { video = Nothing,
+        playbackTime = Nothing,
+        delay = 0,
+        version = 0
+      }

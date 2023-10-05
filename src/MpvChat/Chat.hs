@@ -3,18 +3,9 @@ module MpvChat.Chat
   )
 where
 
-import Data.Fixed (div')
-import Data.Time.Clock
-  ( addUTCTime,
-    nominalDiffTimeToSeconds,
-  )
+import Data.Time.Clock (addUTCTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
-import Database.SQLite.Simple
-  ( Connection,
-    Only (Only),
-    query,
-  )
-import Database.Sqlite.Adapter (JSONField (JSONField))
+import Database.SQLite.Simple (Connection)
 import Lucid.Base
   ( HtmlT,
     renderBST,
@@ -37,14 +28,14 @@ import Lucid.Html5
     ul_,
   )
 import MpvChat.Data
-  ( Badge,
-    ChatState (ChatState),
+  ( ChatState (ChatState),
     Comment (Comment),
-    Highlight (Highlight, NameOnly, NoHighlight),
+    Highlight (Highlight, NoHighlight),
     User (User),
     Video (Video),
   )
 import qualified MpvChat.Data
+import MpvChat.Database (loadChapter, loadComments)
 import MpvChat.Emote
   ( Emote (Emote),
     EmoteScope (EmoteScope),
@@ -144,31 +135,9 @@ renderComments
     do
       let subTime = playbackTime - delay
       let currentTime = addUTCTime subTime startTime
-      chapters <-
-        liftIO $
-          query
-            conn
-            "SELECT description FROM chapter \
-            \WHERE video_id = ? \
-            \AND ? - start_milliseconds BETWEEN 0 AND length_milliseconds \
-            \ORDER BY start_milliseconds \
-            \LIMIT 1"
-            (vid, nominalDiffTimeToSeconds subTime `div'` 0.001 :: Int)
-      comments <-
-        liftIO $
-          query
-            conn
-            "SELECT \
-            \    c.created_at, c.fragments, c.user_badges, c.user_color, \
-            \    u.id, u.display_name, u.name, u.bio, \
-            \    f.highlight \
-            \FROM comment c \
-            \JOIN user u ON u.id = c.commenter \
-            \LEFT JOIN follow f ON f.id = u.id \
-            \WHERE c.content_id = ? AND c.created_at < ? \
-            \ORDER BY c.created_at DESC \
-            \LIMIT 500"
-            (vid, currentTime)
+      chapter <- liftIO $ loadChapter conn vid subTime
+      comments <- liftIO $ loadComments conn vid currentTime
+
       pre_ $ do
         toHtml $ formatTime defaultTimeLocale "%F %T" currentTime
         " ["
@@ -178,33 +147,8 @@ renderComments
           when (delay > 0) "+"
           toHtml $ tshow delay
         "] "
-      for_ chapters \(Only desc) -> div_ $ toHtml (desc :: Text)
+      for_ chapter $ div_ . toHtml
       ul_ [class_ "comments"] $
-        for_
-          comments
-          \( createdAt,
-             JSONField fragments,
-             JSONField badges,
-             userColor,
-             uid,
-             displayName,
-             name,
-             bio,
-             highlight
-             ) -> do
-              let u = User {id = uid, displayName, name, bio}
-                  hl = maybe NoHighlight (bool NameOnly Highlight) highlight
-                  hlMod =
-                    bool NoHighlight NameOnly $
-                      elemOf (each % #_id) "moderator" (badges :: [Badge])
-                  c =
-                    Comment
-                      { createdAt,
-                        commenter = u,
-                        fragments,
-                        userColor,
-                        highlight = max hl hlMod
-                      }
-                  html = runReader (renderBST $ fmtComment c) emotes
-              toHtmlRaw html
+        for_ comments $
+          toHtmlRaw . flip runReader emotes . renderBST . fmtComment
 renderComments _ _ = pre_ "idle"

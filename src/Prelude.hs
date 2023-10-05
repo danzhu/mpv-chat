@@ -152,6 +152,7 @@ import Data.Containers as E
   )
 import Data.Default.Class as E (Default (def))
 import Data.Either as E (Either (Left, Right), either)
+import Data.Either.Optics as E (_Left, _Right)
 import Data.Eq as E (Eq ((/=), (==)))
 import Data.Foldable as E (Foldable, asum)
 import Data.Function as E (const, flip, ($), (&))
@@ -168,6 +169,7 @@ import Data.IntSet as E (IntSet)
 import Data.List.NonEmpty as E (NonEmpty)
 import Data.Map.Strict as E (Map)
 import Data.Maybe as E (Maybe (Just, Nothing), fromMaybe, isJust, maybe)
+import Data.Maybe.Optics as E ((%?), _Just, _Nothing)
 import Data.MonoTraversable as E
   ( Element,
     MonoFoldable,
@@ -306,6 +308,7 @@ import Optics.Fold as E
     sumOf,
     traverseOf_,
   )
+import Optics.Getter as E (to)
 import Optics.Operators as E
   ( (!~),
     (#),
@@ -316,6 +319,8 @@ import Optics.Operators as E
     (^?),
   )
 import Optics.Optic as E ((%))
+import Optics.Re as E (re)
+import Optics.Setter as E (mapped)
 import Optics.TH as E (makeFieldLabelsNoPrefix)
 import Optics.Traversal as E
   ( forOf,
