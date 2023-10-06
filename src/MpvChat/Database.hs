@@ -93,7 +93,7 @@ loadComments conn vid time =
     mkComment
       ( createdAt,
         JSONField fragments,
-        JSONField badges,
+        JSONField badges :: JSONField [Badge],
         userColor,
         uid,
         displayName,
@@ -106,10 +106,12 @@ loadComments conn vid time =
             commenter = User {id = uid, displayName, name, bio},
             fragments,
             userColor,
-            highlight = max hl hlMod
+            highlight =
+              maximum
+                [ maybe NoHighlight (bool NameOnly Highlight) highlight,
+                  bool NoHighlight NameOnly $
+                    elemOf (each % #_id) "moderator" badges,
+                  bool NoHighlight NameOnly $
+                    elemOf (each % #_id) "partner" badges
+                ]
           }
-        where
-          hl = maybe NoHighlight (bool NameOnly Highlight) highlight
-          hlMod =
-            bool NoHighlight NameOnly $
-              elemOf (each % #_id) "moderator" (badges :: [Badge])
