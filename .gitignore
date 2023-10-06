@@ -2,3 +2,7 @@
 /.stack-work/
 /mpv-chat.cabal
 /stack.yaml.lock
+
+*.db
+*.db-shm
+*.db-wal
