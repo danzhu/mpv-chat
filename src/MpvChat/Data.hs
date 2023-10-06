@@ -2,6 +2,7 @@
 
 module MpvChat.Data
   ( Video (..),
+    View (..),
     User (..),
     Badge (..),
     Highlight (..),
@@ -10,13 +11,23 @@ module MpvChat.Data
   )
 where
 
-import Data.Aeson (FromJSON)
+import Data.Aeson (FromJSON, ToJSON)
 import Data.Time.Clock (NominalDiffTime, UTCTime)
 import MpvChat.Emote (EmoteSource)
 import qualified Network.Twitch as Tv
 
+data View = View
+  { title :: Text,
+    content :: LText
+  }
+  deriving stock (Generic, Show)
+  deriving anyclass (ToJSON)
+
+makeFieldLabelsNoPrefix ''View
+
 data Video = Video
   { id :: Tv.VideoId,
+    title :: Text,
     createdAt :: UTCTime,
     channelId :: Tv.ChannelId,
     emotes :: EmoteSource

@@ -1,5 +1,5 @@
 module MpvChat.Chat
-  ( renderComments,
+  ( renderChat,
   )
 where
 
@@ -9,6 +9,7 @@ import Database.SQLite.Simple (Connection)
 import Lucid.Base
   ( HtmlT,
     renderBST,
+    renderText,
     toHtml,
     toHtmlRaw,
   )
@@ -33,6 +34,7 @@ import MpvChat.Data
     Highlight (Highlight, NoHighlight),
     User (User),
     Video (Video),
+    View (View),
   )
 import qualified MpvChat.Data
 import MpvChat.Database (loadChapter, loadComments)
@@ -124,31 +126,31 @@ fmtEmote (EmoteScope ori) txt url =
       alt_ txt
     ]
 
-renderComments :: Connection -> ChatState -> HtmlT IO ()
-renderComments
+renderChat :: Connection -> ChatState -> IO View
+renderChat
   conn
   ChatState
-    { video = Just Video {id = vid, createdAt = startTime, emotes},
+    { video = Just Video {id = vid, title, createdAt = startTime, emotes},
       playbackTime = Just playbackTime,
       delay
-    } =
-    do
-      let subTime = playbackTime - delay
-      let currentTime = addUTCTime subTime startTime
-      chapter <- liftIO $ loadChapter conn vid subTime
-      comments <- liftIO $ loadComments conn vid currentTime
-
-      pre_ $ do
-        toHtml $ formatTime defaultTimeLocale "%F %T" currentTime
-        " ["
-        toHtml $ formatTime defaultTimeLocale "%h:%2M:%2S" subTime
-        when (delay /= 0) do
-          " "
-          when (delay > 0) "+"
-          toHtml $ tshow delay
-        "] "
-      for_ chapter $ div_ . toHtml
-      ul_ [class_ "comments"] $
-        for_ comments $
-          toHtmlRaw . flip runReader emotes . renderBST . fmtComment
-renderComments _ _ = pre_ "idle"
+    } = do
+    let subTime = playbackTime - delay
+        currentTime = addUTCTime subTime startTime
+    chapter <- loadChapter conn vid subTime
+    comments <- loadComments conn vid currentTime
+    let body = do
+          for_ chapter $ div_ [class_ "chapter"] . toHtml
+          pre_ $ do
+            toHtml $ formatTime defaultTimeLocale "%F %T" currentTime
+            " ["
+            toHtml $ formatTime defaultTimeLocale "%h:%2M:%2S" subTime
+            when (delay /= 0) do
+              " "
+              when (delay > 0) "+"
+              toHtml $ tshow delay
+            "] "
+          ul_ [class_ "comments"] $
+            for_ comments $
+              toHtmlRaw . flip runReader emotes . renderBST . fmtComment
+    pure $ View title $ renderText body
+renderChat _ _ = pure $ View "Chat" $ renderText $ pre_ "idle"

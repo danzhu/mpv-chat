@@ -12,14 +12,14 @@ import Control.Concurrent.Task
     withTask_,
   )
 import Control.Monad.ContT (contT_)
-import Data.Aeson (ToJSON, encode)
+import Data.Aeson (encode)
 import Data.ByteString.Builder (byteString)
 import Data.Conduit (ConduitT, yield, (.|))
 import qualified Data.Conduit.Combinators as C
 import Data.Text.IO (putStrLn)
 import Database.SQLite.Simple (withConnection)
-import Lucid.Base (renderTextT)
-import MpvChat.Chat (renderComments)
+import MpvChat.Chat (renderChat)
+import MpvChat.Data (View)
 import MpvChat.Database (loadEmote, loadVideo)
 import Network.HTTP.Types.Status
   ( Status,
@@ -66,13 +66,6 @@ import Network.Wai.Monad
 import System.FilePath.Posix (takeDirectory)
 import UnliftIO.Concurrent (threadDelay)
 import UnliftIO.Environment (getExecutablePath)
-
-data View = View
-  { title :: Text,
-    content :: LText
-  }
-  deriving stock (Generic, Show)
-  deriving anyclass (ToJSON)
 
 data Config = Config
   { ipcPath :: FilePath,
@@ -129,8 +122,8 @@ runMpvChat Config {ipcPath, port, online} = evalContT $ do
             guard . (< new) =<< readTVar ver
             writeTVar ver new
             pure st
-          html <- liftIO $ renderTextT $ renderComments conn st
-          yield $ View "Chat" html
+          chat <- liftIO $ renderChat conn st
+          yield chat
           -- update at most once per 100ms
           threadDelay 100_000
       app =

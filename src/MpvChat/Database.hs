@@ -39,10 +39,10 @@ _Only = iso fromOnly Only
 
 loadVideo :: Connection -> Tv.VideoId -> Bool -> IO Video
 loadVideo conn vid online = do
-  [(createdAt, channelId)] <-
+  [(title, createdAt, channelId)] <-
     query
       conn
-      "SELECT created_at, channel_id FROM video WHERE id = ?"
+      "SELECT title, created_at, channel_id FROM video WHERE id = ?"
       (Only vid)
   emotes <-
     if online
@@ -50,7 +50,7 @@ loadVideo conn vid online = do
       else
         DatabaseSource . setFromList . map fromOnly
           <$> query_ conn "SELECT name FROM emote_third_party"
-  pure $ Video {id = vid, createdAt, channelId, emotes}
+  pure $ Video {id = vid, title, createdAt, channelId, emotes}
 
 loadEmote :: Connection -> Text -> Bool -> IO (Maybe ByteString)
 loadEmote conn id thirdParty =

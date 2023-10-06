@@ -42,6 +42,10 @@ a {
     font-size: inherit;
 }
 
+.chapter {
+    font-style: italic;
+}
+
 .comments {
     padding: 0;
     list-style: none;
