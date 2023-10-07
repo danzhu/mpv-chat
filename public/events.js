@@ -5,6 +5,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const data = JSON.parse(event.data)
         document.title = data.title
         content.innerHTML = data.content
+        if (data.scroll) {
+            window.scrollTo(0, document.body.scrollHeight)
+        }
 
         for (const b of content.querySelectorAll('[data-post]')) {
             b.addEventListener('click', () => {

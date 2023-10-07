@@ -18,7 +18,8 @@ import qualified Network.Twitch as Tv
 
 data View = View
   { title :: Text,
-    content :: LText
+    content :: LText,
+    scroll :: Bool
   }
   deriving stock (Generic, Show)
   deriving anyclass (ToJSON)

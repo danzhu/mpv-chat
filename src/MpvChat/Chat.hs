@@ -8,10 +8,9 @@ import Data.Time.Format (defaultTimeLocale, formatTime)
 import Database.SQLite.Simple (Connection)
 import Lucid.Base
   ( HtmlT,
-    renderBST,
     renderText,
+    renderTextT,
     toHtml,
-    toHtmlRaw,
   )
 import Lucid.Html5
   ( a_,
@@ -53,13 +52,13 @@ import Network.URI
     uriAuthority,
   )
 
-type Fmt = HtmlT (Reader EmoteSource)
+type Fmt = HtmlT (RWS EmoteSource () (HashMap Text Comment))
 
 fmtComment :: Comment -> Fmt ()
 fmtComment
-  Comment
+  c@Comment
     { fragments,
-      commenter = commenter@User {id = commenterId, displayName},
+      commenter = commenter@User {id = uid, displayName},
       userColor,
       highlight
     } = do
@@ -71,7 +70,7 @@ fmtComment
           [ class_ "icon",
             style_ $ maybe "" ("background-color: " <>) userColor,
             -- FIXME: user page removed
-            href_ $ "/user/" <> tshow commenterId
+            href_ $ "/user/" <> tshow uid
           ]
           $ fmtUser commenter
         div_ [class_ "message"] do
@@ -83,6 +82,7 @@ fmtComment
               $ toHtml displayName
             ": "
           traverse_ fmtFragment fragments
+    modify' $ insertMap displayName c
 
 fmtUser :: User -> Fmt ()
 fmtUser User {displayName, name, bio} =
@@ -106,16 +106,25 @@ fmtFragment Tv.Fragment {text, emoticon}
   | otherwise = fold $ intersperse " " $ fmtWord <$> splitElem ' ' text
 
 fmtWord :: Text -> Fmt ()
-fmtWord wor =
-  ask >>= \emotes ->
-    if
-        | Just (Emote ori url) <- thirdPartyEmote emotes wor -> fmtEmote ori wor url
-        | Just ('@', nam) <- uncons wor -> do
-          -- FIXME: user page removed
-          a_ [class_ "mention", href_ $ "/user/" <> nam] $ "@" <> toHtml nam
-        | Just (uriAuthority -> Just _) <- parseURI $ toList wor ->
-          a_ [class_ "url", href_ wor] $ toHtml wor
-        | otherwise -> toHtml wor
+fmtWord word = do
+  emotes <- ask
+  if
+      | Just (Emote ori url) <- thirdPartyEmote emotes word ->
+        fmtEmote ori word url
+      | Just ('@', name) <- uncons word ->
+        span_ [class_ "mention"] do
+          "@"
+          gets (lookup name) >>= \case
+            Nothing -> toHtml name
+            Just Comment {userColor} ->
+              span_
+                [ class_ "name",
+                  style_ $ maybe "" ("color: " <>) userColor
+                ]
+                $ toHtml name
+      | Just (uriAuthority -> Just _) <- parseURI $ toList word ->
+        a_ [class_ "url", href_ word] $ toHtml word
+      | otherwise -> toHtml word
 
 fmtEmote :: EmoteScope -> Text -> Text -> Fmt ()
 fmtEmote (EmoteScope ori) txt url =
@@ -139,18 +148,29 @@ renderChat
     chapter <- loadChapter conn vid subTime
     comments <- loadComments conn vid currentTime
     let body = do
-          for_ chapter $ div_ [class_ "chapter"] . toHtml
-          pre_ $ do
-            toHtml $ formatTime defaultTimeLocale "%F %T" currentTime
-            " ["
-            toHtml $ formatTime defaultTimeLocale "%h:%2M:%2S" subTime
-            when (delay /= 0) do
-              " "
-              when (delay > 0) "+"
-              toHtml $ tshow delay
-            "] "
+          div_ [class_ "header"] do
+            for_ chapter $ div_ [class_ "chapter"] . toHtml
+            pre_ [class_ "timestamp"] $ do
+              toHtml $ formatTime defaultTimeLocale "%F %T" currentTime
+              " ["
+              toHtml $ formatTime defaultTimeLocale "%h:%2M:%2S" subTime
+              when (delay /= 0) do
+                " "
+                when (delay > 0) "+"
+                toHtml $ tshow delay
+              "]"
           ul_ [class_ "comments"] $
-            for_ comments $
-              toHtmlRaw . flip runReader emotes . renderBST . fmtComment
-    pure $ View title $ renderText body
-renderChat _ _ = pure $ View "Chat" $ renderText $ pre_ "idle"
+            traverse_ fmtComment $ reverse comments
+    pure $
+      View
+        { title,
+          content = fst $ evalRWS (renderTextT body) emotes mempty,
+          scroll = True
+        }
+renderChat _ _ =
+  pure $
+    View
+      { title = "Chat",
+        content = renderText $ pre_ "idle",
+        scroll = True
+      }

@@ -1,4 +1,5 @@
 body {
+    margin: 0;
     color: #cccccc;
     background-color: #222222;
     font-family: sans-serif;
@@ -42,8 +43,19 @@ a {
     font-size: inherit;
 }
 
-.chapter {
+.header {
+    position: sticky;
+    top: 0;
+    padding: 12px;
+    background-color: #333333;
+}
+
+.header > .chapter {
     font-style: italic;
+}
+
+.header > .timestamp {
+    margin: 0;
 }
 
 .comments {
@@ -53,7 +65,7 @@ a {
 
 .comment {
     display: flex;
-    padding: 0.2em 0;
+    padding: 0.2em 8px;
 }
 
 .highlight {
@@ -105,5 +117,8 @@ a {
 .mention {
     color: inherit;
     text-decoration: inherit;
-    font-weight: bolder;
+}
+
+.mention > .name {
+    color: #a970ff;
 }
