@@ -53,7 +53,7 @@ import Network.Wai.Monad
     WaiApp,
     appFile,
     appStatic,
-    eventData,
+    data_,
     requestBS,
     responseEvents,
     responsePlainStatus,
@@ -86,7 +86,7 @@ page vs =
         ("text/event-stream", pure $ responseEvents $ vs .| C.map enc)
       ]
   where
-    enc v = def {eventData = encode v}
+    enc v = def {data_ = encode v}
 
 post :: Wai () -> WaiApp
 post app = routePost err $ do

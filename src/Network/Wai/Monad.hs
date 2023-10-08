@@ -25,8 +25,7 @@ import Data.Aeson
     json',
   )
 import Data.ByteString.Builder
-  ( Builder,
-    byteString,
+  ( byteString,
     intDec,
     lazyByteString,
   )
@@ -88,13 +87,22 @@ import System.FilePath
     takeFileName,
   )
 
-newtype Event = Event
-  { eventData :: LByteString
+data Event = Event
+  { event :: Maybe ByteString,
+    data_ :: LByteString,
+    id :: Maybe ByteString,
+    retry :: Maybe Int
   }
   deriving stock (Show)
 
 instance Default Event where
-  def = Event ""
+  def =
+    Event
+      { event = Nothing,
+        data_ = "",
+        id = Nothing,
+        retry = Nothing
+      }
 
 type Wai = ReaderT Request (ContT ResponseReceived IO)
 
@@ -171,13 +179,24 @@ responseSource s hs bs = responseStream s hs body
       where
         send b = write b *> flush
 
+eventToBuilder :: Event -> Builder
+eventToBuilder Event {event, data_, id, retry} =
+  fold
+    [ flip foldMap event \e ->
+        "event: " <> byteString e <> "\n",
+      flip foldMap (splitSeq "\n" data_) \c ->
+        "data: " <> lazyByteString c <> "\n",
+      flip foldMap id \i ->
+        "id: " <> byteString i <> "\n",
+      flip foldMap retry \r ->
+        "retry: " <> intDec r <> "\n",
+      "\n"
+    ]
+
 responseEvents :: ConduitT () Event IO () -> Response
-responseEvents evts = responseSource ok200 hs $ evts .| C.map fmt
-  where
-    hs = [(hContentType, "text/event-stream")]
-    fmt (Event d) = foldMap dat (splitSeq "\n" d) <> "\n"
-      where
-        dat c = "data: " <> lazyByteString c <> "\n"
+responseEvents evts =
+  responseSource ok200 [(hContentType, "text/event-stream")] $
+    evts .| C.map eventToBuilder
 
 mimeByExt :: Text -> Maybe MimeType
 mimeByExt = asum . map (`lookup` defaultMimeMap) . fileNameExtensions

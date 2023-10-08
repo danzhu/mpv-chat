@@ -98,19 +98,26 @@ import Control.Monad.Trans.Reader as E
     ReaderT (ReaderT, runReaderT),
     runReader,
   )
-import Control.Monad.Trans.State as E
+import Control.Monad.Trans.State.Strict as E
   ( State,
     StateT (StateT, runStateT),
+    evalState,
+    evalStateT,
+    execState,
+    execStateT,
     runState,
   )
-import Control.Monad.Trans.Writer as E
+import Control.Monad.Trans.Writer.Strict as E
   ( Writer,
     WriterT (WriterT, runWriterT),
+    execWriter,
+    execWriterT,
     runWriter,
   )
 import Data.Bifunctor as E (Bifunctor (bimap))
 import Data.Bool as E (Bool (False, True), bool, not, otherwise, (&&), (||))
 import Data.ByteString as E (ByteString)
+import Data.ByteString.Builder as E (Builder)
 import qualified Data.ByteString.Lazy as L
 import Data.Char as E (Char)
 import Data.Containers as E
