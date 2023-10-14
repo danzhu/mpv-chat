@@ -5,8 +5,9 @@ body {
     font-family: sans-serif;
 }
 
-a {
+.url {
     color: #55bbff;
+    text-decoration: underline;
 }
 
 .videos {

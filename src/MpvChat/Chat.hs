@@ -123,7 +123,7 @@ fmtWord word = do
                 ]
                 $ toHtml name
       | Just (uriAuthority -> Just _) <- parseURI $ toList word ->
-        a_ [class_ "url", href_ word] $ toHtml word
+        span_ [class_ "url"] $ toHtml word
       | otherwise -> toHtml word
 
 fmtEmote :: EmoteScope -> Text -> Text -> Fmt ()
