@@ -58,7 +58,7 @@ fmtComment :: Comment -> Fmt ()
 fmtComment
   c@Comment
     { fragments,
-      commenter = commenter@User {id = uid, displayName},
+      commenter = commenter@User {id = uid, displayName, name},
       userColor,
       highlight
     } = do
@@ -82,7 +82,7 @@ fmtComment
               $ toHtml displayName
             ": "
           traverse_ fmtFragment fragments
-    modify' $ insertMap displayName c
+    modify' $ insertMap displayName c . insertMap name c
 
 fmtUser :: User -> Fmt ()
 fmtUser User {displayName, name, bio} =
