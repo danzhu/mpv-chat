@@ -122,4 +122,5 @@ body {
 
 .mention > .name {
     color: #a970ff;
+    text-decoration: underline;
 }

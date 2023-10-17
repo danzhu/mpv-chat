@@ -73,8 +73,8 @@ loadChapter conn vid subTime =
       \LIMIT 1"
       (vid, nominalDiffTimeToSeconds subTime `div'` 0.001 :: Int)
 
-loadComments :: Connection -> Tv.VideoId -> UTCTime -> IO [Comment]
-loadComments conn vid time =
+loadComments :: Connection -> Tv.VideoId -> UTCTime -> Maybe Tv.UserId -> IO [Comment]
+loadComments conn vid time uid =
   map mkComment
     <$> query
       conn
@@ -86,16 +86,17 @@ loadComments conn vid time =
       \JOIN user u ON u.id = c.commenter \
       \LEFT JOIN follow f ON f.id = u.id \
       \WHERE c.content_id = ? AND c.created_at < ? \
+      \    AND ifnull(c.commenter = ?, true) \
       \ORDER BY c.created_at DESC \
       \LIMIT 500"
-      (vid, time)
+      (vid, time, uid)
   where
     mkComment
       ( createdAt,
         JSONField fragments,
         JSONField badges :: JSONField [Badge],
         userColor,
-        uid,
+        commenterId,
         displayName,
         name,
         bio,
@@ -103,7 +104,7 @@ loadComments conn vid time =
         ) = do
         Comment
           { createdAt,
-            commenter = User {id = uid, displayName, name, bio},
+            commenter = User {id = commenterId, displayName, name, bio},
             fragments,
             userColor,
             highlight =

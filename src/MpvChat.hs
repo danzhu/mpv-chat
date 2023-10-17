@@ -113,7 +113,7 @@ runMpvChat Config {ipcPath, port, online} = evalContT $ do
           & setHost "*6"
           & setPort port
           & setBeforeMainLoop entry
-      messages = do
+      messages uid = do
         ver <- newTVarIO (-1)
         forever $ do
           st <- atomically $ do
@@ -122,14 +122,15 @@ runMpvChat Config {ipcPath, port, online} = evalContT $ do
             guard . (< new) =<< readTVar ver
             writeTVar ver new
             pure st
-          chat <- liftIO $ renderChat conn st
+          chat <- liftIO $ renderChat conn st uid
           yield chat
           -- update at most once per 100ms
           threadDelay 100_000
       app =
         asks pathInfo >>= \case
           -- chat messages
-          [] -> page messages
+          [] -> page $ messages Nothing
+          ["user", readMaybe . unpack -> Just uid] -> page $ messages (Just uid)
           ["emote", id] ->
             routeGet err do
               liftIO (loadEmote conn id False) >>= \case

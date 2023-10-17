@@ -69,7 +69,6 @@ fmtComment
         a_
           [ class_ "icon",
             style_ $ maybe "" ("background-color: " <>) userColor,
-            -- FIXME: user page removed
             href_ $ "/user/" <> tshow uid
           ]
           $ fmtUser commenter
@@ -116,10 +115,11 @@ fmtWord word = do
           "@"
           gets (lookup name) >>= \case
             Nothing -> toHtml name
-            Just Comment {userColor} ->
-              span_
+            Just Comment {userColor, commenter = User {id = uid}} ->
+              a_
                 [ class_ "name",
-                  style_ $ maybe "" ("color: " <>) userColor
+                  style_ $ maybe "" ("color: " <>) userColor,
+                  href_ $ "/user/" <> tshow uid
                 ]
                 $ toHtml name
       | Just (uriAuthority -> Just _) <- parseURI $ toList word ->
@@ -135,18 +135,19 @@ fmtEmote (EmoteScope ori) txt url =
       alt_ txt
     ]
 
-renderChat :: Connection -> ChatState -> IO View
+renderChat :: Connection -> ChatState -> Maybe Tv.UserId -> IO View
 renderChat
   conn
   ChatState
     { video = Just Video {id = vid, title, createdAt = startTime, emotes},
       playbackTime = Just playbackTime,
       delay
-    } = do
+    }
+  uid = do
     let subTime = playbackTime - delay
         currentTime = addUTCTime subTime startTime
     chapter <- loadChapter conn vid subTime
-    comments <- loadComments conn vid currentTime
+    comments <- loadComments conn vid currentTime uid
     let body = do
           div_ [class_ "header"] do
             for_ chapter $ div_ [class_ "chapter"] . toHtml
@@ -167,7 +168,7 @@ renderChat
           content = fst $ evalRWS (renderTextT body) emotes mempty,
           scroll = True
         }
-renderChat _ _ =
+renderChat _ _ _ =
   pure $
     View
       { title = "Chat",

@@ -29,14 +29,15 @@ data EmoteSource
   | UrlSource Emotes
 
 twitchEmoteUrl :: EmoteSource -> Text -> Text
-twitchEmoteUrl (DatabaseSource _) id = "emote/" <> id
+twitchEmoteUrl (DatabaseSource _) id = "/emote/" <> id
 twitchEmoteUrl (UrlSource _) id = Tv.emoteUrl id
 
 thirdPartyEmote :: EmoteSource -> Text -> Maybe Emote
 thirdPartyEmote (DatabaseSource emotes) name
-  | member name emotes = Just $ Emote "third-party" ("emote-third-party/" <> name)
+  | member name emotes =
+    Just $ Emote "third-party" ("/emote-third-party/" <> name)
+  | otherwise = Nothing
 thirdPartyEmote (UrlSource emotes) name = lookup name emotes
-thirdPartyEmote _ _ = Nothing
 
 bttv :: EmoteScope -> [Bt.Emote] -> Emotes
 bttv s = mapFromList . map emote

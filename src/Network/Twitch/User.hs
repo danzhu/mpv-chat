@@ -9,7 +9,7 @@ import Database.SQLite.Simple.FromField (FromField)
 import Database.SQLite.Simple.ToField (ToField)
 
 newtype UserId = UserId Int
-  deriving newtype (Eq, Show, FromJSON, Hashable, Ord, FromField, ToField)
+  deriving newtype (Eq, Show, Read, FromJSON, Hashable, Ord, FromField, ToField)
 
 data User = User
   { _id :: UserId,
