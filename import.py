@@ -4,6 +4,7 @@ from base64 import b64decode
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 import json
 import sqlite3
 import sys
@@ -34,12 +35,7 @@ def as_datetime(val: str) -> str:
     )
 
 
-def load(conn: sqlite3.Connection) -> None:
-    print("loading json")
-    p = Path(sys.argv[1])
-    with p.open(encoding="utf-8") as f:
-        data = json.load(f)
-
+def load_main(conn: sqlite3.Connection, data: Any) -> None:
     first = data["comments"][0]
     channel_id = int(first["channel_id"])
     content_type = first["content_type"]
@@ -57,6 +53,12 @@ def load(conn: sqlite3.Connection) -> None:
 
     video = data["video"]
     video_id = video["id"]
+
+    print("removing old data")
+    conn.execute("DELETE FROM comment WHERE content_id = ?", (video_id,))
+    conn.execute("DELETE FROM chapter WHERE video_id = ?", (video_id,))
+    conn.execute("DELETE FROM video WHERE id = ?", (video_id,))
+
     print("writing video")
     conn.execute(
         "INSERT INTO video VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -104,9 +106,15 @@ def load(conn: sqlite3.Connection) -> None:
         ),
     )
     print("writing users")
-    # TODO: update
     conn.executemany(
-        "INSERT INTO user VALUES(?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING",
+        "INSERT INTO user VALUES(?, ?, ?, ?, ?, ?, ?)"
+        " ON CONFLICT(id) DO UPDATE SET"
+        " display_name = excluded.display_name,"
+        " name = excluded.name,"
+        " bio = excluded.bio,"
+        " updated_at = excluded.updated_at,"
+        " logo = excluded.logo"
+        " WHERE excluded.updated_at > updated_at",
         (
             (
                 commenter["_id"],
@@ -147,7 +155,10 @@ def load(conn: sqlite3.Connection) -> None:
         map(write_comment, data["comments"]),
     )
 
-    embedded = data["embeddedData"]
+
+def load_embedded(conn: sqlite3.Connection, embedded: Any) -> None:
+    if embedded is None:
+        return
     print("writing emotes")
     assert all(e["name"] is None for e in embedded["firstParty"])
     # TODO: update
@@ -219,19 +230,27 @@ def load(conn: sqlite3.Connection) -> None:
             for tier_name, tier in bits["tierList"].items()
         ),
     )
-    print("committing")
 
 
 def main() -> None:
-    with closing(sqlite3.connect("twitch.db", isolation_level=None)) as conn:
+    ROOT = Path(sys.path[0])
+
+    print("loading json")
+    p = Path(sys.argv[1])
+    with p.open(encoding="utf-8") as f:
+        data = json.load(f)
+
+    with closing(sqlite3.connect(ROOT / "twitch.db", isolation_level=None)) as conn:
         conn.executescript(INIT)
         conn.execute("BEGIN")
         try:
-            load(conn)
+            load_main(conn, data)
+            load_embedded(conn, data["embeddedData"])
         except Exception:
             conn.execute("ROLLBACK")
             raise
         else:
+            print("committing")
             conn.execute("COMMIT")
 
 
