@@ -16,7 +16,6 @@ import Database.SQLite.Simple
   ( Connection,
     Only (Only, fromOnly),
     query,
-    query_,
   )
 import Database.Sqlite.Adapter (JSONField (JSONField))
 import MpvChat.Data
@@ -48,8 +47,8 @@ loadVideo conn vid online = do
     if online
       then UrlSource <$> loadEmotes channelId
       else
-        DatabaseSource . setFromList . map fromOnly
-          <$> query_ conn "SELECT name FROM emote_third_party"
+        DatabaseSource . mapFromList
+          <$> query conn "SELECT name, data FROM emote_third_party WHERE video_id = ?" (Only vid)
   pure $ Video {id = vid, title, createdAt, channelId, emotes}
 
 loadEmote :: Connection -> Text -> Bool -> IO (Maybe ByteString)
@@ -58,8 +57,11 @@ loadEmote conn id thirdParty =
   where
     q =
       if thirdParty
-        then "SELECT data FROM emote_third_party WHERE name = ?"
-        else "SELECT data FROM emote WHERE id = ?"
+        then "SELECT data FROM file WHERE id = ?"
+        else
+          "SELECT f.data FROM emote e \
+          \JOIN file f ON f.id = e.data \
+          \WHERE e.id = ?"
 
 loadChapter :: Connection -> Tv.VideoId -> NominalDiffTime -> IO (Maybe Text)
 loadChapter conn vid subTime =

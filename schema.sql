@@ -58,34 +58,38 @@ CREATE TABLE IF NOT EXISTS comment(
 CREATE INDEX IF NOT EXISTS comment_index
     ON comment(content_id, created_at);
 
+CREATE TABLE IF NOT EXISTS file(
+    id TEXT NOT NULL PRIMARY KEY,
+    data BLOB NOT NULL
+) STRICT;
+
 CREATE TABLE IF NOT EXISTS emote(
-    id TEXT NOT NULL,
+    id TEXT NOT NULL PRIMARY KEY,
     image_scale INTEGER NOT NULL,
-    data BLOB NOT NULL,
-    url TEXT,
+    data TEXT NOT NULL REFERENCES file(id),
     width INTEGER NOT NULL,
-    height INTEGER NOT NULL,
-    PRIMARY KEY(id)
+    height INTEGER NOT NULL
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS emote_third_party(
+    video_id INTEGER NOT NULL REFERENCES video(id),
     name TEXT NOT NULL,
     id TEXT NOT NULL,
     image_scale INTEGER NOT NULL,
-    data BLOB NOT NULL,
-    url TEXT,
+    data TEXT NOT NULL REFERENCES file(id),
     width INTEGER NOT NULL,
     height INTEGER NOT NULL,
-    PRIMARY KEY(name)
+    PRIMARY KEY(video_id, name)
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS twitch_badge(
+    video_id INTEGER NOT NULL REFERENCES video(id),
     name TEXT NOT NULL,
     version INTEGER NOT NULL,
     title TEXT NOT NULL,
     description TEXT NOT NULL,
-    bytes BLOB NOT NULL,
-    PRIMARY KEY(name, version)
+    bytes TEXT NOT NULL REFERENCES file(id),
+    PRIMARY KEY(video_id, name, version)
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS twitch_bits(
@@ -93,9 +97,8 @@ CREATE TABLE IF NOT EXISTS twitch_bits(
     tier INTEGER NOT NULL,
     id TEXT NOT NULL,
     image_scale INTEGER NOT NULL,
-    data BLOB NOT NULL,
+    data TEXT NOT NULL REFERENCES file(id),
     name TEXT NOT NULL,
-    url TEXT,
     width INTEGER NOT NULL,
     height INTEGER NOT NULL,
     PRIMARY KEY(prefix, tier)

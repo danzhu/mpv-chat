@@ -25,7 +25,7 @@ data Emote = Emote EmoteScope Text
 type Emotes = HashMap Text Emote
 
 data EmoteSource
-  = DatabaseSource (HashSet Text)
+  = DatabaseSource (HashMap Text Text)
   | UrlSource Emotes
 
 twitchEmoteUrl :: EmoteSource -> Text -> Text
@@ -34,8 +34,8 @@ twitchEmoteUrl (UrlSource _) id = Tv.emoteUrl id
 
 thirdPartyEmote :: EmoteSource -> Text -> Maybe Emote
 thirdPartyEmote (DatabaseSource emotes) name
-  | member name emotes =
-    Just $ Emote "third-party" ("/emote-third-party/" <> name)
+  | Just id <- lookup name emotes =
+    Just $ Emote "third-party" ("/emote-third-party/" <> id)
   | otherwise = Nothing
 thirdPartyEmote (UrlSource emotes) name = lookup name emotes
 

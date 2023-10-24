@@ -3,6 +3,7 @@
 from base64 import b64decode
 from contextlib import closing
 from datetime import datetime
+from hashlib import sha3_256
 from pathlib import Path
 from typing import Any
 import json
@@ -35,7 +36,7 @@ def as_datetime(val: str) -> str:
     )
 
 
-def load_main(conn: sqlite3.Connection, data: Any) -> None:
+def load(conn: sqlite3.Connection, data: Any) -> None:
     first = data["comments"][0]
     channel_id = int(first["channel_id"])
     content_type = first["content_type"]
@@ -55,6 +56,8 @@ def load_main(conn: sqlite3.Connection, data: Any) -> None:
     video_id = video["id"]
 
     print("removing old data")
+    conn.execute("DELETE FROM twitch_badge WHERE video_id = ?", (video_id,))
+    conn.execute("DELETE FROM emote_third_party WHERE video_id = ?", (video_id,))
     conn.execute("DELETE FROM comment WHERE content_id = ?", (video_id,))
     conn.execute("DELETE FROM chapter WHERE video_id = ?", (video_id,))
     conn.execute("DELETE FROM video WHERE id = ?", (video_id,))
@@ -155,21 +158,29 @@ def load_main(conn: sqlite3.Connection, data: Any) -> None:
         map(write_comment, data["comments"]),
     )
 
-
-def load_embedded(conn: sqlite3.Connection, embedded: Any) -> None:
+    embedded = data["embeddedData"]
     if embedded is None:
         return
+
+    def as_file(b64: str) -> str:
+        data = b64decode(b64)
+        id = sha3_256(data).hexdigest()
+        conn.execute(
+            "INSERT INTO file(id, data) VALUES (?, ?) ON CONFLICT(id) DO NOTHING",
+            (id, data),
+        )
+        return id
+
     print("writing emotes")
     assert all(e["name"] is None for e in embedded["firstParty"])
     # TODO: update
     conn.executemany(
-        "INSERT INTO emote VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING",
+        "INSERT INTO emote VALUES(?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING",
         (
             (
                 emote["id"],
                 emote["imageScale"],
-                b64decode(emote["data"]),
-                emote["url"],
+                as_file(emote["data"]),
                 emote["width"],
                 emote["height"],
             )
@@ -177,17 +188,15 @@ def load_embedded(conn: sqlite3.Connection, embedded: Any) -> None:
         ),
     )
     print("writing third party emotes")
-    # TODO: update
     conn.executemany(
-        "INSERT INTO emote_third_party VALUES(?, ?, ?, ?, ?, ?, ?)"
-        " ON CONFLICT(name) DO NOTHING",
+        "INSERT INTO emote_third_party VALUES(?, ?, ?, ?, ?, ?, ?)",
         (
             (
+                video_id,
                 emote["name"],
                 emote["id"],
                 emote["imageScale"],
-                b64decode(emote["data"]),
-                emote["url"],
+                as_file(emote["data"]),
                 emote["width"],
                 emote["height"],
             )
@@ -196,15 +205,15 @@ def load_embedded(conn: sqlite3.Connection, embedded: Any) -> None:
     )
     print("writing twitch badges")
     conn.executemany(
-        "INSERT INTO twitch_badge VALUES(?, ?, ?, ?, ?)"
-        " ON CONFLICT(name, version) DO NOTHING",
+        "INSERT INTO twitch_badge VALUES(?, ?, ?, ?, ?, ?)",
         (
             (
+                video_id,
                 badge["name"],
                 ver_name,
                 ver["title"],
                 ver["description"],
-                b64decode(ver["bytes"]),
+                as_file(ver["bytes"]),
             )
             for badge in embedded["twitchBadges"]
             for ver_name, ver in badge["versions"].items()
@@ -212,7 +221,7 @@ def load_embedded(conn: sqlite3.Connection, embedded: Any) -> None:
     )
     print("writing twitch bits")
     conn.executemany(
-        "INSERT INTO twitch_bits VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO twitch_bits VALUES(?, ?, ?, ?, ?, ?, ?, ?)"
         " ON CONFLICT(prefix, tier) DO NOTHING",
         (
             (
@@ -220,9 +229,8 @@ def load_embedded(conn: sqlite3.Connection, embedded: Any) -> None:
                 tier_name,
                 tier["id"],
                 tier["imageScale"],
-                b64decode(tier["data"]),
+                as_file(tier["data"]),
                 tier["name"],
-                tier["url"],
                 tier["width"],
                 tier["height"],
             )
@@ -244,8 +252,7 @@ def main() -> None:
         conn.executescript(INIT)
         conn.execute("BEGIN")
         try:
-            load_main(conn, data)
-            load_embedded(conn, data["embeddedData"])
+            load(conn, data)
         except Exception:
             conn.execute("ROLLBACK")
             raise
