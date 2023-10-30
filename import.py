@@ -109,6 +109,11 @@ def load(conn: sqlite3.Connection, data: Any) -> None:
         ),
     )
     print("writing users")
+    users = {
+        commenter["_id"]: commenter
+        for comment in data["comments"]
+        for commenter in (comment["commenter"],)
+    }
     conn.executemany(
         "INSERT INTO user VALUES(?, ?, ?, ?, ?, ?, ?)"
         " ON CONFLICT(id) DO UPDATE SET"
@@ -120,16 +125,15 @@ def load(conn: sqlite3.Connection, data: Any) -> None:
         " WHERE excluded.updated_at > updated_at",
         (
             (
-                commenter["_id"],
-                commenter["display_name"],
-                commenter["name"],
-                commenter["bio"],
-                as_datetime(commenter["created_at"]),
-                as_datetime(commenter["updated_at"]),
-                commenter["logo"],
+                uid,
+                user["display_name"],
+                user["name"],
+                user["bio"],
+                as_datetime(user["created_at"]),
+                as_datetime(user["updated_at"]),
+                user["logo"],
             )
-            for comment in data["comments"]
-            for commenter in (comment["commenter"],)
+            for uid, user in users.items()
         ),
     )
 
