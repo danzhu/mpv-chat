@@ -158,7 +158,8 @@ renderChat
               when (delay /= 0) do
                 " "
                 when (delay > 0) "+"
-                toHtml $ tshow delay
+                toHtml $ formatTime defaultTimeLocale "%1Es" delay
+                "s"
               "]"
           ul_ [class_ "comments"] $
             traverse_ fmtComment $ reverse comments
