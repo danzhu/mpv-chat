@@ -23,15 +23,16 @@ CREATE TABLE IF NOT EXISTS video(
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS chapter(
-    id TEXT NOT NULL PRIMARY KEY,
+    id TEXT NOT NULL,
     video_id INTEGER NOT NULL REFERENCES video(id),
     start_milliseconds INTEGER NOT NULL,
     length_milliseconds INTEGER NOT NULL,
     type TEXT NOT NULL,
     description TEXT NOT NULL,
     sub_description TEXT NOT NULL,
-    thumbnail_url TEXT NOT NULL,
-    game_id INTEGER NOT NULL REFERENCES game(id)
+    thumbnail_url TEXT,
+    game_id INTEGER NOT NULL REFERENCES game(id),
+    PRIMARY KEY(video_id, start_milliseconds)
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS user(
