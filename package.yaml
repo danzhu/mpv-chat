@@ -39,6 +39,7 @@ ghc-options:
   - -Wno-missing-safe-haskell-mode
   - -Wno-monomorphism-restriction
   - -Wno-prepositive-qualified-module
+  - -Wno-redundant-bang-patterns
   - -Wno-safe
   - -Wno-unsafe
 
