@@ -1,19 +1,19 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 module MpvChat.Data
-  ( Video (..),
-    View (..),
+  ( View (..),
+    EmoteScope (..),
+    EmoteSource,
+    Video (..),
     User (..),
-    Badge (..),
     Highlight (..),
     Comment (..),
     ChatState (..),
   )
 where
 
-import Data.Aeson (FromJSON, ToJSON)
+import Data.Aeson (ToJSON)
 import Data.Time.Clock (NominalDiffTime, UTCTime)
-import MpvChat.Emote (EmoteSource)
 import qualified Network.Twitch as Tv
 
 data View = View
@@ -25,6 +25,13 @@ data View = View
   deriving anyclass (ToJSON)
 
 makeFieldLabelsNoPrefix ''View
+
+data EmoteScope
+  = EmoteTwitch
+  | EmoteThirdParty
+
+-- third party emote text -> emote hash
+type EmoteSource = HashMap Text Text
 
 data Video = Video
   { id :: Tv.VideoId,
@@ -44,15 +51,6 @@ data User = User
   }
 
 makeFieldLabelsNoPrefix ''User
-
-data Badge = Badge
-  { _id :: Text,
-    version :: Text
-  }
-  deriving stock (Generic)
-  deriving anyclass (FromJSON)
-
-makeFieldLabelsNoPrefix ''Badge
 
 data Highlight
   = NoHighlight

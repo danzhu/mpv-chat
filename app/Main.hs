@@ -24,12 +24,11 @@ import Options.Applicative
     short,
     showDefault,
     str,
-    switch,
     value,
   )
 
 config :: Parser Config
-config = Config <$> ipc <*> por <*> onl
+config = Config <$> ipc <*> por
   where
     ipc =
       option str $
@@ -44,10 +43,6 @@ config = Config <$> ipc <*> por <*> onl
           <> value 8192
           <> help "server port"
           <> showDefault
-    onl =
-      switch $
-        long "online"
-          <> help "use online sources for emotes"
 
 program :: ParserInfo Config
 program =

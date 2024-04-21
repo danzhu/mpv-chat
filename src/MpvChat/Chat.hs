@@ -30,6 +30,8 @@ import Lucid.Html5
 import MpvChat.Data
   ( ChatState (ChatState),
     Comment (Comment),
+    EmoteScope (EmoteThirdParty, EmoteTwitch),
+    EmoteSource,
     Highlight (Highlight, NoHighlight),
     User (User),
     Video (Video),
@@ -37,16 +39,7 @@ import MpvChat.Data
   )
 import qualified MpvChat.Data
 import MpvChat.Database (loadChapter, loadComments)
-import MpvChat.Emote
-  ( Emote (Emote),
-    EmoteScope (EmoteScope),
-    EmoteSource,
-    thirdPartyEmote,
-    twitchEmoteUrl,
-  )
 import qualified Network.Twitch as Tv
-import qualified Network.Twitch.Emoticon
-import qualified Network.Twitch.Fragment
 import Network.URI
   ( parseURI,
     uriAuthority,
@@ -99,41 +92,44 @@ fmtUser User {displayName, name, bio} =
 
 fmtFragment :: Tv.Fragment -> Fmt ()
 fmtFragment Tv.Fragment {text, emoticon}
-  | Just Tv.Emoticon {emoticon_id} <- emoticon = do
-    emotes <- ask
-    fmtEmote "twitch" text $ twitchEmoteUrl emotes emoticon_id
+  | Just Tv.Emoticon {emoticon_id} <- emoticon =
+      fmtEmote EmoteTwitch text $ "/emote/" <> emoticon_id
   | otherwise = fold $ intersperse " " $ fmtWord <$> splitElem ' ' text
 
 fmtWord :: Text -> Fmt ()
 fmtWord word = do
   emotes <- ask
   if
-      | Just (Emote ori url) <- thirdPartyEmote emotes word ->
-        fmtEmote ori word url
+      | Just id <- lookup word emotes ->
+          fmtEmote EmoteThirdParty word $ "/emote-third-party/" <> id
       | Just ('@', name) <- uncons word ->
-        span_ [class_ "mention"] do
-          "@"
-          gets (lookup name) >>= \case
-            Nothing -> toHtml name
-            Just Comment {userColor, commenter = User {id = uid}} ->
-              a_
-                [ class_ "name",
-                  style_ $ maybe "" ("color: " <>) userColor,
-                  href_ $ "/user/" <> tshow uid
-                ]
-                $ toHtml name
+          span_ [class_ "mention"] do
+            "@"
+            gets (lookup name) >>= \case
+              Nothing -> toHtml name
+              Just Comment {userColor, commenter = User {id = uid}} ->
+                a_
+                  [ class_ "name",
+                    style_ $ maybe "" ("color: " <>) userColor,
+                    href_ $ "/user/" <> tshow uid
+                  ]
+                  $ toHtml name
       | Just (uriAuthority -> Just _) <- parseURI $ toList word ->
-        span_ [class_ "url"] $ toHtml word
+          span_ [class_ "url"] $ toHtml word
       | otherwise -> toHtml word
 
 fmtEmote :: EmoteScope -> Text -> Text -> Fmt ()
-fmtEmote (EmoteScope ori) txt url =
+fmtEmote scope txt url =
   img_
     [ class_ "emote",
       src_ url,
       title_ $ txt <> " [" <> ori <> "]",
       alt_ txt
     ]
+  where
+    ori = case scope of
+      EmoteTwitch -> "twitch"
+      EmoteThirdParty -> "third-party"
 
 renderChat :: Connection -> ChatState -> Maybe Tv.UserId -> IO View
 renderChat
@@ -162,7 +158,8 @@ renderChat
                 "s"
               "]"
           ul_ [class_ "comments"] $
-            traverse_ fmtComment $ reverse comments
+            traverse_ fmtComment $
+              reverse comments
     pure $
       View
         { title,

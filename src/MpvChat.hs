@@ -35,7 +35,6 @@ import Network.Mpv
     observeProperty,
     runMpv,
   )
-import qualified Network.Twitch as Tv
 import Network.Wai
   ( pathInfo,
     responseBuilder,
@@ -69,8 +68,7 @@ import UnliftIO.Environment (getExecutablePath)
 
 data Config = Config
   { ipcPath :: FilePath,
-    port :: Port,
-    online :: Bool
+    port :: Port
   }
   deriving stock (Show)
 
@@ -94,7 +92,7 @@ post app = routePost err $ do
   pure $ responsePlainStatus ok200 []
 
 runMpvChat :: Config -> IO ()
-runMpvChat Config {ipcPath, port, online} = evalContT $ do
+runMpvChat Config {ipcPath, port} = evalContT $ do
   conn <- ContT $ withConnection "twitch.db"
 
   chatState <- newTVarIO def
@@ -152,7 +150,7 @@ runMpvChat Config {ipcPath, port, online} = evalContT $ do
           _ -> appStatic err "public"
       update f = modifyTVar' chatState $ (#version %!~ succ) . f
       load vid = startTask taskLoad $ do
-        v <- loadVideo conn vid online
+        v <- loadVideo conn vid
         atomically $ do
           -- TODO: fix glitch where playback-time from last video is used before
           -- the new video is loaded
@@ -160,14 +158,14 @@ runMpvChat Config {ipcPath, port, online} = evalContT $ do
           writeTVar seek True
       unload =
         startTask taskLoad $
-          atomically $ update $ #video !~ Nothing
+          atomically $
+            update $
+              #video !~ Nothing
       setup = do
         observeProperty mpv "filename/no-ext" $ \case
-          Nothing -> unload
-          Just n -> case Tv.parseVideoId n of
-            -- TODO: show different message for non-twitch urls
-            Left _ -> unload
-            Right vid -> load vid
+          -- TODO: show different message for non-twitch urls
+          Just (readMaybe -> Just vid) -> load vid
+          _ -> unload
         observeProperty mpv "pause" $ atomically . writeTVar active . not
         observeProperty mpv "sub-delay" $ atomically . update . (#delay !~)
         observeEvent mpv "seek" $ atomically $ writeTVar seek True

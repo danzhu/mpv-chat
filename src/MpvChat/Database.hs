@@ -19,36 +19,28 @@ import Database.SQLite.Simple
   )
 import Database.Sqlite.Adapter (JSONField (JSONField))
 import MpvChat.Data
-  ( Badge,
-    Comment (Comment),
+  ( Comment (Comment),
     Highlight (Highlight, NameOnly, NoHighlight),
     User (User),
     Video (Video),
   )
 import qualified MpvChat.Data
-import MpvChat.Emote
-  ( EmoteSource (DatabaseSource, UrlSource),
-    loadEmotes,
-  )
 import qualified Network.Twitch as Tv
 import Optics.Iso (Iso, iso)
 
 _Only :: Iso (Only a) (Only b) a b
 _Only = iso fromOnly Only
 
-loadVideo :: Connection -> Tv.VideoId -> Bool -> IO Video
-loadVideo conn vid online = do
+loadVideo :: Connection -> Tv.VideoId -> IO Video
+loadVideo conn vid = do
   [(title, createdAt, channelId)] <-
     query
       conn
       "SELECT title, created_at, channel_id FROM video WHERE id = ?"
       (Only vid)
   emotes <-
-    if online
-      then UrlSource <$> loadEmotes channelId
-      else
-        DatabaseSource . mapFromList
-          <$> query conn "SELECT name, data FROM emote_third_party WHERE video_id = ?" (Only vid)
+    mapFromList
+      <$> query conn "SELECT name, data FROM emote_third_party WHERE video_id = ?" (Only vid)
   pure $ Video {id = vid, title, createdAt, channelId, emotes}
 
 loadEmote :: Connection -> Text -> Bool -> IO (Maybe ByteString)
@@ -96,7 +88,7 @@ loadComments conn vid time uid =
     mkComment
       ( createdAt,
         JSONField fragments,
-        JSONField badges :: JSONField [Badge],
+        JSONField badges :: JSONField [Tv.Badge],
         userColor,
         commenterId,
         displayName,

@@ -15,6 +15,7 @@ default-extensions:
   - LambdaCase
   - MultiWayIf
   - NamedFieldPuns
+  - NoFieldSelectors
   - OverloadedLabels
   - OverloadedStrings
   - PatternSynonyms
@@ -39,9 +40,12 @@ ghc-options:
   - -Wno-missing-safe-haskell-mode
   - -Wno-monomorphism-restriction
   - -Wno-prepositive-qualified-module
+  # very noisy with LANGUAGE Strict
   - -Wno-redundant-bang-patterns
   - -Wno-safe
   - -Wno-unsafe
+  # complains base is unused, even though we need it for hiding prelude
+  - -Wno-unused-packages
 
 dependencies:
   - name: base
@@ -70,11 +74,9 @@ library:
     - conduit
     - conduit-extra
     - data-default-class
-    - http-conduit
     - http-media
     - http-types
     - lucid
-    - megaparsec
     - mime-types
     - mono-traversable
     - optics-core

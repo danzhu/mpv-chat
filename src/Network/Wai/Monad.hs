@@ -144,17 +144,17 @@ routeGet err app =
 routePost :: (Status -> WaiApp) -> WaiApp -> WaiApp
 routePost err app = routeMethod err [(methodPost, app)]
 
-requestSource :: MonadIO m => Request -> ConduitT i ByteString m ()
+requestSource :: (MonadIO m) => Request -> ConduitT i ByteString m ()
 requestSource req = do
   chunk <- liftIO $ getRequestBodyChunk req
   unless (null chunk) $ do
     yield chunk
     requestSource req
 
-requestBS :: MonadIO m => Request -> m ByteString
+requestBS :: (MonadIO m) => Request -> m ByteString
 requestBS req = liftIO $ runConduit $ requestSource req .| C.fold
 
-requestJson :: MonadIO m => Request -> m Value
+requestJson :: (MonadIO m) => Request -> m Value
 requestJson req = liftIO $ runConduit $ requestSource req .| sinkParser json'
 
 responsePlainStatus :: Status -> ResponseHeaders -> Response
