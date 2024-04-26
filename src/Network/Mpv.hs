@@ -1,19 +1,24 @@
 module Network.Mpv
-  ( Mpv,
-    MpvError (..),
-    Prop,
-    Error,
-    Event,
-    CommandType (commandValue),
-    LoadData,
-    command,
-    eventChan,
-    getProperty,
-    loadfile,
+  ( -- * Basic Operation
     newMpvClient,
+    runMpv,
+    command,
     observeEvent,
     observeProperty,
-    runMpv,
+
+    -- * Types
+    Mpv,
+    MpvError (..),
+    CommandName (..),
+    PropertyName (..),
+    EventName (..),
+    Error,
+    CommandType (commandValue),
+
+    -- * Commands
+    LoadData,
+    loadfile,
+    getProperty,
     setProperty,
   )
 where
@@ -25,19 +30,16 @@ import Control.Monad.Catch
   )
 import Data.Aeson
   ( FromJSON (parseJSON),
-    KeyValue ((.=)),
     ToJSON (toJSON),
     Value (Null),
     eitherDecodeStrict',
     encode,
-    object,
     parseJSON,
     toJSON,
     withObject,
     (.!=),
     (.:),
     (.:?),
-    (.=),
   )
 import Data.Aeson.Types (parseEither)
 import qualified Data.ByteString.Char8 as BC
@@ -52,34 +54,43 @@ import Data.Conduit.Network.Unix
   )
 import qualified Data.IdMap as IM
 
-type Prop = Text
+newtype CommandName = CommandName Text
+  deriving newtype (Eq, Ord, Hashable, Show, Read, FromJSON, ToJSON, IsString)
+
+newtype PropertyName = PropertyName Text
+  deriving newtype (Eq, Ord, Hashable, Show, Read, FromJSON, ToJSON, IsString)
+
+newtype EventName = EventName Text
+  deriving newtype (Eq, Ord, Hashable, Show, Read, FromJSON, ToJSON, IsString)
 
 type Error = Text
 
-data Request = ReqCommand
-  { reqId :: IM.Id,
-    reqAsync :: Bool,
-    reqCommand :: [Value]
-  }
-  deriving stock (Show)
+type Command = [Value]
 
-instance ToJSON Request where
-  toJSON (ReqCommand rid asy cmd) =
-    object
-      [ "request_id" .= rid,
-        "async" .= asy,
-        "command" .= cmd
-      ]
+data Request = ReqCommand
+  { request_id :: IM.Id,
+    async :: Bool,
+    command :: Command
+  }
+  deriving stock (Show, Generic)
+  deriving anyclass (ToJSON)
 
 data Event
-  = EvtPropChange IM.Id Prop Value
-  | EvtOther Text
+  = EvtPropChange IM.Id PropertyName Value
+  | EvtOther EventName
   deriving stock (Show)
 
--- 'Maybe' needed as 'data' field may not exist
-type Data = Maybe Value
+instance FromJSON Event where
+  parseJSON = withObject "Event" $ \o ->
+    o .: "event" >>= \case
+      "property-change" ->
+        EvtPropChange
+          <$> o .: "id"
+          <*> o .: "name"
+          <*> o .:? "data" .!= Null
+      name -> pure $ EvtOther name
 
-type Reply = Either Error Data
+type Reply = Either Error Value
 
 data Response
   = ResEvent Event
@@ -87,18 +98,16 @@ data Response
   deriving stock (Show)
 
 instance FromJSON Response where
-  parseJSON = withObject "Response" $ \o -> do
-    let evt "property-change" =
-          EvtPropChange
-            <$> o .: "id"
-            <*> o .: "name"
-            <*> o .:? "data" .!= Null
-        evt name = pure $ EvtOther name
-        rep "success" = Right <$> o .:? "data"
-        rep err = pure $ Left err
-        event = ResEvent <$> (evt =<< o .: "event")
-        reply = ResReply <$> (o .: "request_id") <*> (rep =<< o .: "error")
-    event <|> reply
+  parseJSON v =
+    ResEvent <$> parseJSON v
+      <|> parseReply v
+    where
+      parseReply = withObject "Response" $ \o -> do
+        let rep =
+              o .: "error" >>= \case
+                "success" -> Right <$> o .:? "data" .!= Null
+                err -> pure $ Left err
+        ResReply <$> (o .: "request_id") <*> rep
 
 data MpvError
   = MpvIpcError Error
@@ -109,9 +118,9 @@ data MpvError
   deriving anyclass (Exception)
 
 data Mpv = Mpv
-  { requests :: TBQueue ([Value], TMVar Reply),
+  { requests :: TBQueue (Command, TMVar Reply),
     waits :: TVar (IM.IdMap (TMVar Reply)),
-    handlers :: TVar (HashMap Text (IO ())),
+    handlers :: TVar (HashMap EventName (IO ())),
     changes :: TVar (IM.IdMap (Value -> IO ())),
     events :: TChan Event
   }
@@ -135,7 +144,8 @@ produce :: Mpv -> IO ByteString
 produce Mpv {requests, waits} = do
   (cmd, wait) <- atomically $ readTBQueue requests
   rid <- atomically $ stateTVar waits $ IM.insert wait
-  let line = toStrict $ encode $ ReqCommand rid True cmd
+  let req = ReqCommand {request_id = rid, async = True, command = cmd}
+      line = toStrict $ encode req
   liftIO $ BC.putStrLn $ "> " <> line
   pure line
 
@@ -185,14 +195,6 @@ runMpv mpv ipcPath = liftIO $
 fromJson :: FromJSON a => Value -> IO a
 fromJson = expectE MpvTypeError . parseEither parseJSON
 
-eventChan :: MonadIO m => Mpv -> m (TChan Event)
-eventChan Mpv {events} = atomically $ dupTChan events
-
-observeEvent :: MonadUnliftIO m => Mpv -> Text -> m () -> m ()
-observeEvent mpv@Mpv {handlers} e f = withRunInIO $ \run -> do
-  atomically $ modifyTVar' handlers $ insertWith (<>) e $ run f
-  command mpv "enable_event" e
-
 class CommandType a where
   commandValue :: Mpv -> [Value] -> a
 
@@ -202,37 +204,40 @@ instance FromJSON r => CommandType (IO r) where
     atomically $ writeTBQueue requests (reverse args, wait)
     reply <- atomically $ readTMVar wait
     r <- expectE MpvIpcError reply
-    -- HACK: round-trip converting '()' to 'Value' and back,
-    -- to reuse 'FromJSON' and avoid custom constraints
-    fromJson $ fromMaybe (toJSON ()) r
+    fromJson r
 
 instance (ToJSON a, CommandType c) => CommandType (a -> c) where
   commandValue mpv args a = commandValue mpv $ toJSON a : args
 
-command :: CommandType c => Mpv -> Text -> c
+command :: CommandType c => Mpv -> CommandName -> c
 command mpv = commandValue mpv []
 
-newtype LoadData = LoadData
-  { playlist_entry_id :: Int
-  }
-  deriving stock (Generic)
-  deriving anyclass (FromJSON)
-
-loadfile :: Mpv -> Text -> IO LoadData
-loadfile mpv = command mpv "loadfile"
-
-getProperty :: FromJSON a => Mpv -> Prop -> IO a
-getProperty mpv = command mpv "get_property"
-
-setProperty :: Mpv -> Prop -> Value -> IO ()
-setProperty mpv = command mpv "set_property"
+observeEvent :: MonadUnliftIO m => Mpv -> EventName -> m () -> m ()
+observeEvent mpv@Mpv {handlers} e f = withRunInIO $ \run -> do
+  atomically $ modifyTVar' handlers $ insertWith (<>) e $ run f
+  command mpv "enable_event" e
 
 observeProperty ::
   (MonadUnliftIO m, FromJSON a) =>
   Mpv ->
-  Prop ->
+  PropertyName ->
   (a -> m ()) ->
   m ()
 observeProperty mpv@Mpv {changes} p f = withRunInIO $ \run -> do
   i <- atomically $ stateTVar changes $ IM.insert $ run . f <=< fromJson
   command mpv "observe_property" i p
+
+newtype LoadData = LoadData
+  { playlist_entry_id :: Int
+  }
+  deriving stock (Show, Generic)
+  deriving anyclass (FromJSON)
+
+loadfile :: Mpv -> Text -> IO LoadData
+loadfile mpv = command mpv "loadfile"
+
+getProperty :: FromJSON a => Mpv -> PropertyName -> IO a
+getProperty mpv = command mpv "get_property"
+
+setProperty :: Mpv -> PropertyName -> Value -> IO ()
+setProperty mpv = command mpv "set_property"
