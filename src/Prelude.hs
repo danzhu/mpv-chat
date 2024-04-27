@@ -16,6 +16,7 @@ module Prelude
 
     -- * Utility Functions
     tshow,
+    treadMaybe,
   )
 where
 
@@ -335,7 +336,8 @@ import Optics.Traversal as E
     traverseOf,
   )
 import System.IO as E (FilePath, IO)
-import Text.Read as E (Read, readMaybe)
+import Text.Read (readMaybe)
+import Text.Read as E (Read)
 import Text.Show as E (Show (show))
 import UnliftIO.Async as E (concurrently, concurrently_, mapConcurrently)
 import UnliftIO.Exception as E
@@ -398,3 +400,7 @@ undef = undefined
 -- | `Text`-returning `show`.
 tshow :: Show a => a -> Text
 tshow = fromList . show
+
+-- | `Text`-consuming `readMaybe`.
+treadMaybe :: Read a => Text -> Maybe a
+treadMaybe = readMaybe . toList

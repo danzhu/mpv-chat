@@ -128,7 +128,7 @@ runMpvChat Config {ipcPath, port} = evalContT $ do
         asks pathInfo >>= \case
           -- chat messages
           [] -> page $ messages Nothing
-          ["user", readMaybe . unpack -> Just uid] -> page $ messages (Just uid)
+          ["user", treadMaybe -> Just uid] -> page $ messages (Just uid)
           ["emote", id] ->
             routeGet err do
               liftIO (loadEmote conn id False) >>= \case
@@ -164,7 +164,7 @@ runMpvChat Config {ipcPath, port} = evalContT $ do
       setup = do
         observeProperty mpv "filename/no-ext" $ \case
           -- TODO: show different message for non-twitch urls
-          Just (readMaybe -> Just vid) -> load vid
+          Just (treadMaybe -> Just vid) -> load vid
           _ -> unload
         observeProperty mpv "pause" $ atomically . writeTVar active . not
         observeProperty mpv "sub-delay" $ atomically . update . (#delay !~)
