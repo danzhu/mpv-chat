@@ -274,11 +274,12 @@ def import_chat(conn: sqlite3.Connection, p: Path) -> None:
         conn.execute("COMMIT")
 
 
-def start_video(id: str) -> None:
+def start_video(id: str, ipc_path: Path) -> None:
+    print("starting video")
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-        s.connect(bytes(ROOT / "mpv"))
+        s.connect(bytes(ipc_path))
         url = URL_FMT.format(id=id)
-        msg = json.dumps({"command": ["loadfile", url]}) + "\n"
+        msg = as_json({"command": ["loadfile", url]}) + "\n"
         s.sendall(msg.encode())
         s.shutdown(socket.SHUT_RDWR)
 
@@ -309,7 +310,10 @@ def main() -> None:
             if not path.exists():
                 download_chat(id, path)
             import_chat(conn, path)
-        start_video(id)
+
+    ipc_path = ROOT / "mpv"
+    if ipc_path.exists():
+        start_video(id, ipc_path)
 
 
 if __name__ == "__main__":
