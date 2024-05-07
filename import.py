@@ -296,7 +296,7 @@ def main() -> None:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA synchronous = NORMAL")
 
-        match = URL_RE.search(id)
+        match = URL_RE.fullmatch(id)
         if match is not None:
             id = match.group(1)
 
