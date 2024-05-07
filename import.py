@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 
+import json
+import re
+import socket
+import sqlite3
+import subprocess
+import sys
 from base64 import b64decode
 from contextlib import closing
 from datetime import datetime
 from hashlib import sha3_256
 from pathlib import Path
 from typing import Any
-import json
-import sqlite3
-import sys
 
-
-INIT = """\
-PRAGMA foreign_keys = ON;
-PRAGMA journal_mode = WAL;
-PRAGMA synchronous = NORMAL;
-"""
+ROOT = Path(sys.path[0])
+URL_RE = re.compile(r"https://www\.twitch\.tv/videos/(\d+)")
+URL_FMT = "https://www.twitch.tv/videos/{id}"
 
 
 def as_json(obj: object) -> str:
@@ -29,9 +29,7 @@ def as_datetime(val: str) -> str:
         timespec=(
             "seconds"
             if d.microsecond == 0
-            else "milliseconds"
-            if d.microsecond % 1000 == 0
-            else "microseconds"
+            else "milliseconds" if d.microsecond % 1000 == 0 else "microseconds"
         ),
     )
 
@@ -244,25 +242,74 @@ def load(conn: sqlite3.Connection, data: Any) -> None:
     )
 
 
-def main() -> None:
-    ROOT = Path(sys.path[0])
+def download_chat(id: str, p: Path) -> None:
+    print("downloading chat")
+    subprocess.run(
+        [
+            ROOT / "chat/TwitchDownloaderCLI",
+            "chatdownload",
+            "--id",
+            id,
+            "-o",
+            p,
+            "--embed-images",
+        ],
+        check=True,
+    )
 
+
+def import_chat(conn: sqlite3.Connection, p: Path) -> None:
     print("loading json")
-    p = Path(sys.argv[1])
     with p.open(encoding="utf-8") as f:
         data = json.load(f)
 
+    conn.execute("BEGIN")
+    try:
+        load(conn, data)
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    else:
+        print("committing")
+        conn.execute("COMMIT")
+
+
+def start_video(id: str) -> None:
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+        s.connect(bytes(ROOT / "mpv"))
+        url = URL_FMT.format(id=id)
+        msg = json.dumps({"command": ["loadfile", url]}) + "\n"
+        s.sendall(msg.encode())
+        s.shutdown(socket.SHUT_RDWR)
+
+
+def main() -> None:
+    from argparse import ArgumentParser
+
+    p = ArgumentParser()
+    p.add_argument("id", help="video id or url")
+    args = p.parse_args()
+    id: str = args.id
+
     with closing(sqlite3.connect(ROOT / "twitch.db", isolation_level=None)) as conn:
-        conn.executescript(INIT)
-        conn.execute("BEGIN")
-        try:
-            load(conn, data)
-        except Exception:
-            conn.execute("ROLLBACK")
-            raise
-        else:
-            print("committing")
-            conn.execute("COMMIT")
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+
+        match = URL_RE.search(id)
+        if match is not None:
+            id = match.group(1)
+
+        path = ROOT / f"chat/{id}.json"
+        stored = bool(
+            conn.execute("SELECT 1 FROM video WHERE id = ?", (id,)).fetchone()
+        )
+
+        if not stored:
+            if not path.exists():
+                download_chat(id, path)
+            import_chat(conn, path)
+        start_video(id)
 
 
 if __name__ == "__main__":

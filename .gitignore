@@ -1,5 +1,6 @@
 /.log/
 /.stack-work/
+/chat/
 /mpv-chat.cabal
 /stack.yaml.lock
 
