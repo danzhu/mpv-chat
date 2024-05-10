@@ -285,8 +285,14 @@ def main() -> None:
 
     p = ArgumentParser()
     p.add_argument("id", help="video id or url")
+    p.add_argument(
+        "--ipc-path",
+        type=Path,
+        help="mpv ipc path, used to auto start video",
+    )
     args = p.parse_args()
     id_str: str = args.id
+    ipc_path: Path | None = args.ipc_path
 
     logging.basicConfig(format="[%(levelname)s] %(message)s", level=logging.INFO)
 
@@ -334,8 +340,7 @@ def main() -> None:
             logger.info("committing")
             conn.execute("COMMIT")
 
-    ipc_path = ROOT / "mpv"
-    if ipc_path.exists():
+    if ipc_path and ipc_path.exists():
         start_video(id, ipc_path)
 
 

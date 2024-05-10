@@ -10,15 +10,23 @@ Haskell [Stack](https://docs.haskellstack.org/en/stable/README/) is required.
 stack build
 ```
 
-## Usage
+## Dependencies
 
-TODO: document chat import process
+Download [TwitchDownloaderCLI](https://github.com/lay295/TwitchDownloader) and
+put the executable in `chat` directory under project root.
+
+## Usage
 
 In project root directory, run:
 
 ``` shell
-mpv --input-ipc-server=mpv_ipc <twitch_vod_url>
-stack exec -- mpv-chat --ipc-path=mpv_ipc
+# download chat and import into db
+./import.py <twitch_vod_url>
+# start mpv with ipc server
+mpv --input-ipc-server=mpv <twitch_vod_url> --idle=yes --force-window=yes
+# start chat viewer server
+stack exec -- mpv-chat --ipc-path=mpv
+# open chat in browser
 firefox http://localhost:8192/
 ```
 
