@@ -17,7 +17,7 @@ from typing import Any
 logger = logging.getLogger("__name__")
 
 ROOT = Path(sys.path[0])
-URL_RE = re.compile(r"https://www\.twitch\.tv/videos/(\d+)")
+URL_RE = re.compile(r"https://www\.twitch\.tv/videos/(\d+)(\?.*)?")
 URL_FMT = "https://www.twitch.tv/videos/{id}"
 
 
@@ -297,22 +297,33 @@ def main() -> None:
 
     logging.basicConfig(format="[%(levelname)s] %(message)s", level=logging.INFO)
 
+    match = URL_RE.fullmatch(id)
+    if match is not None:
+        id = match.group(1)
+    try:
+        int(id)
+    except ValueError:
+        print(f"invalid video id {id!r}")
+        sys.exit(2)
+
+    logger.info(f"importing video {id}")
+
     with closing(sqlite3.connect(ROOT / "twitch.db", isolation_level=None)) as conn:
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA synchronous = NORMAL")
-
-        match = URL_RE.fullmatch(id)
-        if match is not None:
-            id = match.group(1)
 
         path = ROOT / f"chat/{id}.json"
         stored = bool(
             conn.execute("SELECT 1 FROM video WHERE id = ?", (id,)).fetchone()
         )
 
-        if not stored:
-            if not path.exists():
+        if stored:
+            logger.info("already stored")
+        else:
+            if path.exists():
+                logger.info("already downloaded")
+            else:
                 download_chat(id, path)
             import_chat(conn, path)
 
