@@ -17,6 +17,8 @@ from typing import Any
 logger = logging.getLogger("__name__")
 
 ROOT = Path(sys.path[0])
+SCHEMA = ROOT / "schema.sql"
+STMT_RE = re.compile(r"\n*;\n*")
 URL_RE = re.compile(r"https://www\.twitch\.tv/videos/(\d+)(\?.*)?")
 URL_FMT = "https://www.twitch.tv/videos/{id}"
 
@@ -245,14 +247,14 @@ def load(conn: sqlite3.Connection, data: Any) -> None:
     )
 
 
-def download_chat(id: str, p: Path) -> None:
+def download_chat(id: int, p: Path) -> None:
     logger.info("downloading chat")
     subprocess.run(
         [
             ROOT / "chat/TwitchDownloaderCLI",
             "chatdownload",
             "--id",
-            id,
+            str(id),
             "-o",
             p,
             "--embed-images",
@@ -265,19 +267,10 @@ def import_chat(conn: sqlite3.Connection, p: Path) -> None:
     logger.info("loading json")
     with p.open(encoding="utf-8") as f:
         data = json.load(f)
-
-    conn.execute("BEGIN")
-    try:
-        load(conn, data)
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
-    else:
-        logger.info("committing")
-        conn.execute("COMMIT")
+    load(conn, data)
 
 
-def start_video(id: str, ipc_path: Path) -> None:
+def start_video(id: int, ipc_path: Path) -> None:
     logger.info("starting video")
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
         s.connect(bytes(ipc_path))
@@ -293,39 +286,53 @@ def main() -> None:
     p = ArgumentParser()
     p.add_argument("id", help="video id or url")
     args = p.parse_args()
-    id: str = args.id
+    id_str: str = args.id
 
     logging.basicConfig(format="[%(levelname)s] %(message)s", level=logging.INFO)
 
-    match = URL_RE.fullmatch(id)
+    match = URL_RE.fullmatch(id_str)
     if match is not None:
-        id = match.group(1)
+        id_str = match.group(1)
     try:
-        int(id)
+        id = int(id_str)
     except ValueError:
-        print(f"invalid video id {id!r}")
+        print(f"invalid video id {id_str!r}")
         sys.exit(2)
 
-    logger.info(f"importing video {id}")
+    logger.info(f"video id {id}")
 
     with closing(sqlite3.connect(ROOT / "twitch.db", isolation_level=None)) as conn:
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA synchronous = NORMAL")
 
-        path = ROOT / f"chat/{id}.json"
-        stored = bool(
-            conn.execute("SELECT 1 FROM video WHERE id = ?", (id,)).fetchone()
-        )
+        conn.execute("BEGIN")
+        try:
+            logger.info("updating schema")
+            stmts = STMT_RE.split(SCHEMA.read_text())
+            for stmt in stmts:
+                if not stmt:
+                    continue
+                conn.execute(stmt)
 
-        if stored:
-            logger.info("already stored")
-        else:
-            if path.exists():
-                logger.info("already downloaded")
+            stored = bool(
+                conn.execute("SELECT 1 FROM video WHERE id = ?", (id,)).fetchone()
+            )
+            if stored:
+                logger.info("already stored")
             else:
-                download_chat(id, path)
-            import_chat(conn, path)
+                path = ROOT / f"chat/{id}.json"
+                if path.exists():
+                    logger.info("already downloaded")
+                else:
+                    download_chat(id, path)
+                import_chat(conn, path)
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+        else:
+            logger.info("committing")
+            conn.execute("COMMIT")
 
     ipc_path = ROOT / "mpv"
     if ipc_path.exists():
