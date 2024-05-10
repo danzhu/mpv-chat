@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import json
+import logging
 import re
 import socket
 import sqlite3
@@ -12,6 +13,8 @@ from datetime import datetime
 from hashlib import sha3_256
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("__name__")
 
 ROOT = Path(sys.path[0])
 URL_RE = re.compile(r"https://www\.twitch\.tv/videos/(\d+)")
@@ -53,14 +56,14 @@ def load(conn: sqlite3.Connection, data: Any) -> None:
     video = data["video"]
     video_id = video["id"]
 
-    print("removing old data")
+    logger.info("removing old data")
     conn.execute("DELETE FROM twitch_badge WHERE video_id = ?", (video_id,))
     conn.execute("DELETE FROM emote_third_party WHERE video_id = ?", (video_id,))
     conn.execute("DELETE FROM comment WHERE content_id = ?", (video_id,))
     conn.execute("DELETE FROM chapter WHERE video_id = ?", (video_id,))
     conn.execute("DELETE FROM video WHERE id = ?", (video_id,))
 
-    print("writing video")
+    logger.info("writing video")
     conn.execute(
         "INSERT INTO video VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
@@ -76,7 +79,7 @@ def load(conn: sqlite3.Connection, data: Any) -> None:
             content_type,
         ),
     )
-    print("writing games")
+    logger.info("writing games")
     conn.executemany(
         "INSERT INTO game VALUES(?, ?, ?) ON CONFLICT(id) DO NOTHING",
         (
@@ -88,7 +91,7 @@ def load(conn: sqlite3.Connection, data: Any) -> None:
             for chapter in video["chapters"]
         ),
     )
-    print("writing chapters")
+    logger.info("writing chapters")
     conn.executemany(
         "INSERT INTO chapter VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
@@ -106,7 +109,7 @@ def load(conn: sqlite3.Connection, data: Any) -> None:
             for chapter in video["chapters"]
         ),
     )
-    print("writing users")
+    logger.info("writing users")
     users = {
         commenter["_id"]: commenter
         for comment in data["comments"]
@@ -154,7 +157,7 @@ def load(conn: sqlite3.Connection, data: Any) -> None:
             message["user_color"],
         )
 
-    print("writing comments")
+    logger.info("writing comments")
     conn.executemany(
         "INSERT INTO comment VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
         map(write_comment, data["comments"]),
@@ -173,7 +176,7 @@ def load(conn: sqlite3.Connection, data: Any) -> None:
         )
         return id
 
-    print("writing emotes")
+    logger.info("writing emotes")
     assert all(e["name"] is None for e in embedded["firstParty"])
     # TODO: update
     conn.executemany(
@@ -189,7 +192,7 @@ def load(conn: sqlite3.Connection, data: Any) -> None:
             for emote in embedded["firstParty"]
         ),
     )
-    print("writing third party emotes")
+    logger.info("writing third party emotes")
     conn.executemany(
         "INSERT INTO emote_third_party VALUES(?, ?, ?, ?, ?, ?, ?)",
         (
@@ -205,7 +208,7 @@ def load(conn: sqlite3.Connection, data: Any) -> None:
             for emote in embedded["thirdParty"]
         ),
     )
-    print("writing twitch badges")
+    logger.info("writing twitch badges")
     conn.executemany(
         "INSERT INTO twitch_badge VALUES(?, ?, ?, ?, ?, ?)",
         (
@@ -221,7 +224,7 @@ def load(conn: sqlite3.Connection, data: Any) -> None:
             for ver_name, ver in badge["versions"].items()
         ),
     )
-    print("writing twitch bits")
+    logger.info("writing twitch bits")
     conn.executemany(
         "INSERT INTO twitch_bits VALUES(?, ?, ?, ?, ?, ?, ?, ?)"
         " ON CONFLICT(prefix, tier) DO NOTHING",
@@ -243,7 +246,7 @@ def load(conn: sqlite3.Connection, data: Any) -> None:
 
 
 def download_chat(id: str, p: Path) -> None:
-    print("downloading chat")
+    logger.info("downloading chat")
     subprocess.run(
         [
             ROOT / "chat/TwitchDownloaderCLI",
@@ -259,7 +262,7 @@ def download_chat(id: str, p: Path) -> None:
 
 
 def import_chat(conn: sqlite3.Connection, p: Path) -> None:
-    print("loading json")
+    logger.info("loading json")
     with p.open(encoding="utf-8") as f:
         data = json.load(f)
 
@@ -270,12 +273,12 @@ def import_chat(conn: sqlite3.Connection, p: Path) -> None:
         conn.execute("ROLLBACK")
         raise
     else:
-        print("committing")
+        logger.info("committing")
         conn.execute("COMMIT")
 
 
 def start_video(id: str, ipc_path: Path) -> None:
-    print("starting video")
+    logger.info("starting video")
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
         s.connect(bytes(ipc_path))
         url = URL_FMT.format(id=id)
@@ -291,6 +294,8 @@ def main() -> None:
     p.add_argument("id", help="video id or url")
     args = p.parse_args()
     id: str = args.id
+
+    logging.basicConfig(format="[%(levelname)s] %(message)s", level=logging.INFO)
 
     with closing(sqlite3.connect(ROOT / "twitch.db", isolation_level=None)) as conn:
         conn.execute("PRAGMA foreign_keys = ON")
