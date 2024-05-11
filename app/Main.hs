@@ -11,6 +11,7 @@ import MpvChat
 import Options.Applicative
   ( Parser,
     ParserInfo,
+    argument,
     auto,
     execParser,
     fullDesc,
@@ -31,9 +32,8 @@ config :: Parser Config
 config = Config <$> ipc <*> por
   where
     ipc =
-      option str $
-        long "ipc-path"
-          <> metavar "PATH"
+      argument str $
+        metavar "PATH"
           <> help "mpv ipc path"
     por =
       option auto $

@@ -25,7 +25,7 @@ In project root directory, run:
 # start mpv with ipc server
 mpv --input-ipc-server=mpv <twitch_vod_url> --idle=yes --force-window=yes
 # start chat viewer server
-stack exec -- mpv-chat --ipc-path=mpv
+stack exec -- mpv-chat mpv
 # open chat in browser
 firefox http://localhost:8192/
 ```
