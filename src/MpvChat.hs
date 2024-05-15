@@ -170,6 +170,7 @@ runMpvChat Config {ipcPath, port} = evalContT $ do
       setup = do
         observeProperty mpv "filename/no-ext" $ \case
           -- TODO: show different message for non-twitch urls
+          -- FIXME: this doesn't handle query params
           Just (treadMaybe -> Just vid) -> load vid
           _ -> unload
         observeProperty mpv "pause" $ atomically . writeTVar active . not
