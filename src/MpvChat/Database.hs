@@ -1,5 +1,6 @@
 module MpvChat.Database
   ( loadVideo,
+    loadVideos,
     loadChapter,
     loadEmote,
     loadComments,
@@ -42,6 +43,18 @@ loadVideo conn vid = do
     mapFromList
       <$> query conn "SELECT name, data FROM emote_third_party WHERE video_id = ?" (Only vid)
   pure $ Video {id = vid, title, createdAt, channelId, emotes}
+
+-- TODO: make a separate Video type for listing
+loadVideos :: Connection -> IO [Video]
+loadVideos conn =
+  map mkVideo
+    <$> query
+      conn
+      "SELECT id, title, created_at, channel_id FROM video ORDER BY created_at DESC"
+      ()
+  where
+    mkVideo (id, title, createdAt, channelId) =
+      Video {id, title, createdAt, channelId, emotes = mempty}
 
 loadEmote :: Connection -> Text -> Bool -> IO (Maybe ByteString)
 loadEmote conn id thirdParty =

@@ -21,6 +21,7 @@ import Database.SQLite.Simple (withConnection)
 import MpvChat.Chat (renderChat)
 import MpvChat.Data (View)
 import MpvChat.Database (loadEmote, loadVideo)
+import MpvChat.Videos (renderVideos)
 import Network.HTTP.Types.Status
   ( Status,
     notFound404,
@@ -139,6 +140,11 @@ runMpvChat Config {ipcPath, port} = evalContT $ do
               liftIO (loadEmote conn name True) >>= \case
                 Just bs -> pure $ responseBuilder ok200 [] $ byteString bs
                 Nothing -> err notFound404
+          -- videos
+          ["videos"] -> page $ do
+            videos <- liftIO $ renderVideos conn
+            yield videos
+            threadDelay maxBound
           -- actions
           ["loadfile"] -> post $ do
             url <- join $ asks requestBS
