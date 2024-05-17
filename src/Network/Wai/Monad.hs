@@ -218,6 +218,6 @@ appStatic :: (Status -> WaiApp) -> FilePath -> WaiApp
 appStatic err dir = do
   path <- asks pathInfo
   if
-      | any (isPrefixOf ".") path -> err forbidden403
-      | maybe True null $ lastOf each path -> pure $ responseRedirect "index.html"
-      | otherwise -> routeGet err $ appFile err $ joinPath $ dir : map toList path
+    | any (isPrefixOf ".") path -> err forbidden403
+    | maybe True null $ lastOf each path -> pure $ responseRedirect "index.html"
+    | otherwise -> routeGet err $ appFile err $ joinPath $ dir : map toList path

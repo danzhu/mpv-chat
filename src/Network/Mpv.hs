@@ -108,9 +108,7 @@ data Response
   deriving stock (Show)
 
 instance FromJSON Response where
-  parseJSON v =
-    ResEvent <$> parseJSON v
-      <|> parseReply v
+  parseJSON v = ResEvent <$> parseJSON v <|> parseReply v
     where
       parseReply = withObject "Response" $ \o -> do
         let rep =
@@ -148,7 +146,7 @@ expect e = maybe (throwM e) pure
 expectE :: (MonadThrow m, Exception e) => (b -> e) -> Either b a -> m a
 expectE e = either (throwM . e) pure
 
-newMpvClient :: MonadIO m => m Mpv
+newMpvClient :: (MonadIO m) => m Mpv
 newMpvClient =
   Mpv
     <$> newTBQueueIO 16
@@ -222,7 +220,7 @@ communicate mpv@Mpv {closed} app =
 
 -- | Start mpv IPC, and run the provided action to finish before returning.
 -- Use `waitMpv` to make the connection stay open until mpv exits.
-withMpv :: MonadUnliftIO m => FilePath -> (Mpv -> m ()) -> m ()
+withMpv :: (MonadUnliftIO m) => FilePath -> (Mpv -> m ()) -> m ()
 withMpv ipcPath f = withRunInIO $ \run -> do
   mpv <- newMpvClient
   runUnixClient (clientSettings ipcPath) $ \app ->
@@ -231,10 +229,10 @@ withMpv ipcPath f = withRunInIO $ \run -> do
       run (f mpv)
 
 -- | Wait for mpv to close the connection.
-waitMpv :: MonadIO m => Mpv -> m ()
+waitMpv :: (MonadIO m) => Mpv -> m ()
 waitMpv Mpv {closed} = atomically $ guard =<< readTVar closed
 
-fromJson :: FromJSON a => Value -> IO a
+fromJson :: (FromJSON a) => Value -> IO a
 fromJson = expectE MpvTypeError . parseEither parseJSON
 
 -- | Send command to mpv and return the result.
@@ -251,7 +249,7 @@ command' Mpv {requests} args = liftIO $ do
 class CommandType a where
   commandValue :: Mpv -> [Value] -> a
 
-instance FromJSON r => CommandType (IO r) where
+instance (FromJSON r) => CommandType (IO r) where
   commandValue mpv args = command' mpv $ reverse args
 
 instance (ToJSON a, CommandType c) => CommandType (a -> c) where
@@ -259,11 +257,11 @@ instance (ToJSON a, CommandType c) => CommandType (a -> c) where
 
 -- | Send command to mpv and return the result.
 -- Use printf-style command name/args passing.
-command :: CommandType c => Mpv -> CommandName -> c
+command :: (CommandType c) => Mpv -> CommandName -> c
 command mpv = commandValue mpv []
 
 -- | Run the callback whenever the provided event is received.
-observeEvent_ :: MonadUnliftIO m => Mpv -> EventName -> m () -> m ()
+observeEvent_ :: (MonadUnliftIO m) => Mpv -> EventName -> m () -> m ()
 observeEvent_ mpv@Mpv {handlers} e f = withRunInIO $ \run -> do
   atomically $ modifyTVar' handlers $ insertWith (<>) e $ run f
   command mpv "enable_event" e
@@ -316,8 +314,8 @@ loadfile mpv = command mpv "loadfile"
 clientName :: Mpv -> IO Text
 clientName mpv = command mpv "client_name"
 
-getProperty :: FromJSON a => Mpv -> PropertyName a -> IO a
+getProperty :: (FromJSON a) => Mpv -> PropertyName a -> IO a
 getProperty mpv = command mpv "get_property"
 
-setProperty :: ToJSON a => Mpv -> PropertyName a -> a -> IO ()
+setProperty :: (ToJSON a) => Mpv -> PropertyName a -> a -> IO ()
 setProperty mpv = command mpv "set_property"

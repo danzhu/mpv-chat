@@ -382,11 +382,11 @@ type LByteString = L.ByteString
 type LText = L.Text
 
 -- | Synonym for `id`.
-identity :: Category cat => cat a a
+identity :: (Category cat) => cat a a
 identity = id
 
 -- | Synonym for `fmap`.
-map :: Functor f => (a -> b) -> f a -> f b
+map :: (Functor f) => (a -> b) -> f a -> f b
 map = fmap
 
 -- | Synonym for `sequenceA`.
@@ -394,14 +394,14 @@ sequence :: (Traversable t, Applicative f) => t (f a) -> f (t a)
 sequence = sequenceA
 
 -- | Synonym for `undefined` with warning.
-undef :: HasCallStack => a
+undef :: (HasCallStack) => a
 undef = undefined
 {-# WARNING undef "'undef' left in code" #-}
 
 -- | `Text`-returning `show`.
-tshow :: Show a => a -> Text
+tshow :: (Show a) => a -> Text
 tshow = fromList . show
 
 -- | `Text`-consuming `readMaybe`.
-treadMaybe :: Read a => Text -> Maybe a
+treadMaybe :: (Read a) => Text -> Maybe a
 treadMaybe = readMaybe . toList

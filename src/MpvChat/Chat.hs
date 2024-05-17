@@ -100,23 +100,23 @@ fmtWord :: Text -> Fmt ()
 fmtWord word = do
   emotes <- ask
   if
-      | Just id <- lookup word emotes ->
-          fmtEmote EmoteThirdParty word $ "/emote-third-party/" <> id
-      | Just ('@', name) <- uncons word ->
-          span_ [class_ "mention"] do
-            "@"
-            gets (lookup name) >>= \case
-              Nothing -> toHtml name
-              Just Comment {userColor, commenter = User {id = uid}} ->
-                a_
-                  [ class_ "name",
-                    style_ $ maybe "" ("color: " <>) userColor,
-                    href_ $ "/user/" <> tshow uid
-                  ]
-                  $ toHtml name
-      | Just (uriAuthority -> Just _) <- parseURI $ toList word ->
-          span_ [class_ "url"] $ toHtml word
-      | otherwise -> toHtml word
+    | Just id <- lookup word emotes ->
+        fmtEmote EmoteThirdParty word $ "/emote-third-party/" <> id
+    | Just ('@', name) <- uncons word ->
+        span_ [class_ "mention"] do
+          "@"
+          gets (lookup name) >>= \case
+            Nothing -> toHtml name
+            Just Comment {userColor, commenter = User {id = uid}} ->
+              a_
+                [ class_ "name",
+                  style_ $ maybe "" ("color: " <>) userColor,
+                  href_ $ "/user/" <> tshow uid
+                ]
+                $ toHtml name
+    | Just (uriAuthority -> Just _) <- parseURI $ toList word ->
+        span_ [class_ "url"] $ toHtml word
+    | otherwise -> toHtml word
 
 fmtEmote :: EmoteScope -> Text -> Text -> Fmt ()
 fmtEmote scope txt url =
