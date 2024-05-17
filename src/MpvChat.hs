@@ -29,12 +29,13 @@ import Network.HTTP.Types.Status
   )
 import Network.Mpv
   ( MpvError (MpvIpcError),
+    clientName,
     getProperty,
     loadfile,
-    newMpvClient,
-    observeEvent,
+    observeEvent_,
     observeProperty,
-    runMpv,
+    waitMpv,
+    withMpv,
   )
 import Network.Wai
   ( pathInfo,
@@ -95,6 +96,9 @@ post app = routePost err $ do
 runMpvChat :: Config -> IO ()
 runMpvChat Config {ipcPath, port} = evalContT $ do
   conn <- ContT $ withConnection "twitch.db"
+  mpv <- ContT $ withMpv ipcPath
+  ipcName <- liftIO $ clientName mpv
+  liftIO $ putStrLn $ "connected to mpv with name " <> ipcName
 
   chatState <- newTVarIO def
   active <- newTVarIO False
@@ -103,7 +107,6 @@ runMpvChat Config {ipcPath, port} = evalContT $ do
   exePath <- getExecutablePath
   let installPath = takeDirectory $ takeDirectory exePath
 
-  mpv <- newMpvClient
   taskLoad <- ContT withEmptyTask
 
   let entry = putStrLn $ "server started on port " <> tshow port
@@ -168,14 +171,14 @@ runMpvChat Config {ipcPath, port} = evalContT $ do
             update $
               #video !~ Nothing
       setup = do
-        observeProperty mpv "filename/no-ext" $ \case
+        observeProperty mpv #"filename/no-ext" $ \case
           -- TODO: show different message for non-twitch urls
           -- FIXME: this doesn't handle query params
           Just (treadMaybe -> Just vid) -> load vid
           _ -> unload
-        observeProperty mpv "pause" $ atomically . writeTVar active . not
-        observeProperty mpv "sub-delay" $ atomically . update . (#delay !~)
-        observeEvent mpv "seek" $ atomically $ writeTVar seek True
+        observeProperty mpv #pause $ atomically . writeTVar active . not
+        observeProperty mpv #"sub-delay" $ atomically . update . (#delay !~)
+        observeEvent_ mpv "seek" $ atomically $ writeTVar seek True
 
   contT_ $ withTask_ $ runSettings settings $ runWai app
   contT_ $
@@ -191,6 +194,7 @@ runMpvChat Config {ipcPath, port} = evalContT $ do
               guard =<< readTVar timeout
         let unavail (MpvIpcError "property unavailable") = Just ()
             unavail _ = Nothing
-        time <- tryJust unavail $ getProperty mpv "playback-time"
+        time <- tryJust unavail $ getProperty mpv #"playback-time"
         atomically $ update $ #playbackTime !~ (time ^? _Right)
-  lift $ runMpv mpv ipcPath `concurrently_` setup
+  liftIO setup
+  waitMpv mpv

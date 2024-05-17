@@ -1,22 +1,27 @@
 module Network.Mpv
   ( -- * Basic Operation
-    newMpvClient,
-    runMpv,
+    withMpv,
+    waitMpv,
     command,
-    observeEvent,
+    command',
+    observeEvent_,
     observeProperty,
 
     -- * Types
     Mpv,
     MpvError (..),
+    MpvProtocolError (..),
     CommandName (..),
     PropertyName (..),
     EventName (..),
+    Command,
     Error,
+    MpvProperty,
     CommandType (commandValue),
 
     -- * Commands
-    LoadData,
+    clientName,
+    LoadData (..),
     loadfile,
     getProperty,
     setProperty,
@@ -53,30 +58,35 @@ import Data.Conduit.Network.Unix
     runUnixClient,
   )
 import qualified Data.IdMap as IM
+import Data.Time (NominalDiffTime)
+import GHC.OverloadedLabels (IsLabel (fromLabel))
+import GHC.TypeLits (KnownSymbol, Symbol, symbolVal)
 
+-- | Newtype for mpv command names, e.g. "loadfile".
 newtype CommandName = CommandName Text
   deriving newtype (Eq, Ord, Hashable, Show, Read, FromJSON, ToJSON, IsString)
 
-newtype PropertyName = PropertyName Text
-  deriving newtype (Eq, Ord, Hashable, Show, Read, FromJSON, ToJSON, IsString)
-
+-- | Newtype for mpv event names, e.g. "seek".
 newtype EventName = EventName Text
   deriving newtype (Eq, Ord, Hashable, Show, Read, FromJSON, ToJSON, IsString)
 
+-- | Type for errors returned from mpv (string).
 type Error = Text
 
+-- | Type for commands sent to mpv.
+-- TODO: support JSON object (named arguments).
 type Command = [Value]
 
 data Request = ReqCommand
-  { request_id :: IM.Id,
-    async :: Bool,
-    command :: Command
+  { command :: Command,
+    request_id :: IM.Id,
+    async :: Bool
   }
   deriving stock (Show, Generic)
   deriving anyclass (ToJSON)
 
 data Event
-  = EvtPropChange IM.Id PropertyName Value
+  = EvtPropChange IM.Id Text Value
   | EvtOther EventName
   deriving stock (Show)
 
@@ -109,20 +119,27 @@ instance FromJSON Response where
                 err -> pure $ Left err
         ResReply <$> (o .: "request_id") <*> rep
 
-data MpvError
-  = MpvIpcError Error
-  | MpvTypeError String
+-- | Errors returned by mpv.
+newtype MpvError = MpvIpcError Error
+  deriving stock (Show)
+  deriving anyclass (Exception)
+
+-- | Programming errors, indicating bugs/misuse.
+data MpvProtocolError
+  = MpvTypeError String
   | MpvJsonError ByteString String
   | MpvNoReqId
   deriving stock (Show)
   deriving anyclass (Exception)
 
+-- | IPC connection state.
 data Mpv = Mpv
   { requests :: TBQueue (Command, TMVar Reply),
     waits :: TVar (IM.IdMap (TMVar Reply)),
     handlers :: TVar (HashMap EventName (IO ())),
     changes :: TVar (IM.IdMap (Value -> IO ())),
-    events :: TChan Event
+    events :: TChan Event,
+    closed :: TVar Bool
   }
 
 expect :: (MonadThrow m, Exception e) => e -> Maybe a -> m a
@@ -139,94 +156,154 @@ newMpvClient =
     <*> newTVarIO mempty
     <*> newTVarIO (IM.empty 1)
     <*> newTChanIO
+    <*> newTVarIO False
 
-produce :: Mpv -> IO ByteString
+produce :: Mpv -> IO Request
 produce Mpv {requests, waits} = do
   (cmd, wait) <- atomically $ readTBQueue requests
   rid <- atomically $ stateTVar waits $ IM.insert wait
-  let req = ReqCommand {request_id = rid, async = True, command = cmd}
-      line = toStrict $ encode req
-  liftIO $ BC.putStrLn $ "> " <> line
+  pure $ ReqCommand {command = cmd, request_id = rid, async = True}
+
+consume :: Mpv -> Response -> IO ()
+consume Mpv {events} (ResEvent evt) = atomically $ writeTChan events evt
+consume Mpv {waits} (ResReply rid rep) = atomically $ do
+  v <- stateTVar waits $ IM.remove rid
+  w <- expect MpvNoReqId v
+  putTMVar w rep
+
+encodeReq :: Request -> IO ByteString
+encodeReq req = do
+  let line = toStrict $ encode req
+  -- TODO: find a logging solution and redirect log somewhere else
+  BC.putStrLn $ "> " <> line
   pure line
 
-consume :: Mpv -> ByteString -> IO ()
-consume Mpv {events, waits} line = do
-  liftIO $ BC.putStrLn $ "  " <> line
-  res <- expectE (MpvJsonError line) $ eitherDecodeStrict' line
-  case res of
-    ResEvent evt -> atomically $ writeTChan events evt
-    ResReply rid rep -> atomically $ do
-      v <- stateTVar waits $ IM.remove rid
-      w <- expect MpvNoReqId v
-      putTMVar w rep
+decodeRes :: ByteString -> IO Response
+decodeRes line = do
+  BC.putStrLn $ "  " <> line
+  expectE (MpvJsonError line) $ eitherDecodeStrict' line
 
-stdin :: Mpv -> AppDataUnix -> IO ()
-stdin mpv app =
+send :: Mpv -> AppDataUnix -> IO ()
+send mpv app =
   runConduit $
     C.repeatM (produce mpv)
+      .| C.mapM encodeReq
       .| C.unlinesAscii
       .| appSink app
 
-stdout :: Mpv -> AppDataUnix -> IO ()
-stdout mpv app =
+recv :: Mpv -> AppDataUnix -> IO ()
+recv mpv app =
   runConduit $
     appSource app
       .| C.linesUnboundedAscii
+      .| C.mapM decodeRes
       .| C.mapM_ (consume mpv)
 
+-- handle events in a separate thread to avoid deadlocks when user calls mpv
+-- within handlers
 handle :: Mpv -> IO a
-handle mpv@Mpv {changes, handlers, events} = do
-  () <- liftIO $ command mpv "disable_event" ("all" :: Text)
+handle Mpv {changes, handlers, events} =
   forever $
     atomically (readTChan events) >>= \case
       EvtPropChange i _ v -> do
         h <- IM.lookup i <$> readTVarIO changes
-        liftIO $ traverse_ ($ v) h
+        traverse_ ($ v) h
       EvtOther e -> do
         h <- lookup e <$> readTVarIO handlers
-        liftIO $ sequence_ h
+        sequence_ h
 
-runMpv :: MonadIO m => Mpv -> FilePath -> m ()
-runMpv mpv ipcPath = liftIO $
+communicate :: Mpv -> AppDataUnix -> IO ()
+communicate mpv@Mpv {closed} app =
+  send mpv app
+    `concurrently_` (recv mpv app *> setClosed)
+    `concurrently_` handle mpv
+  where
+    setClosed = atomically $ writeTVar closed True
+
+-- | Start mpv IPC, and run the provided action to finish before returning.
+-- Use `waitMpv` to make the connection stay open until mpv exits.
+withMpv :: MonadUnliftIO m => FilePath -> (Mpv -> m ()) -> m ()
+withMpv ipcPath f = withRunInIO $ \run -> do
+  mpv <- newMpvClient
   runUnixClient (clientSettings ipcPath) $ \app ->
-    withTask_ (stdin mpv app `concurrently_` handle mpv) $
-      stdout mpv app
+    withTask_ (communicate mpv app) $ do
+      () <- command mpv "disable_event" ("all" :: Text)
+      run (f mpv)
+
+-- | Wait for mpv to close the connection.
+waitMpv :: MonadIO m => Mpv -> m ()
+waitMpv Mpv {closed} = atomically $ guard =<< readTVar closed
 
 fromJson :: FromJSON a => Value -> IO a
 fromJson = expectE MpvTypeError . parseEither parseJSON
 
+-- | Send command to mpv and return the result.
+-- Take command name/args as a single argument.
+command' :: (MonadIO m, FromJSON r) => Mpv -> Command -> m r
+command' Mpv {requests} args = liftIO $ do
+  wait <- newEmptyTMVarIO
+  atomically $ writeTBQueue requests (args, wait)
+  reply <- atomically $ readTMVar wait
+  r <- expectE MpvIpcError reply
+  fromJson r
+
+-- | Typeclass for printf-style `command`.
 class CommandType a where
   commandValue :: Mpv -> [Value] -> a
 
 instance FromJSON r => CommandType (IO r) where
-  commandValue Mpv {requests} args = do
-    wait <- newEmptyTMVarIO
-    atomically $ writeTBQueue requests (reverse args, wait)
-    reply <- atomically $ readTMVar wait
-    r <- expectE MpvIpcError reply
-    fromJson r
+  commandValue mpv args = command' mpv $ reverse args
 
 instance (ToJSON a, CommandType c) => CommandType (a -> c) where
   commandValue mpv args a = commandValue mpv $ toJSON a : args
 
+-- | Send command to mpv and return the result.
+-- Use printf-style command name/args passing.
 command :: CommandType c => Mpv -> CommandName -> c
 command mpv = commandValue mpv []
 
-observeEvent :: MonadUnliftIO m => Mpv -> EventName -> m () -> m ()
-observeEvent mpv@Mpv {handlers} e f = withRunInIO $ \run -> do
+-- | Run the callback whenever the provided event is received.
+observeEvent_ :: MonadUnliftIO m => Mpv -> EventName -> m () -> m ()
+observeEvent_ mpv@Mpv {handlers} e f = withRunInIO $ \run -> do
   atomically $ modifyTVar' handlers $ insertWith (<>) e $ run f
   command mpv "enable_event" e
 
+-- | Typeclass to associate property type to property name.
+class MpvProperty (s :: Symbol) a | s -> a
+
+instance MpvProperty "filename" (Maybe Text)
+
+instance MpvProperty "filename/no-ext" (Maybe Text)
+
+instance MpvProperty "playback-time" NominalDiffTime
+
+instance MpvProperty "pause" Bool
+
+instance MpvProperty "sub-delay" NominalDiffTime
+
+-- | Newtype for mpv property names, e.g. "filename".
+newtype PropertyName a = PropertyName Text
+  deriving newtype (Eq, Ord, Hashable, Show, Read, FromJSON, ToJSON, IsString)
+
+instance (KnownSymbol p, MpvProperty p a) => IsLabel p (PropertyName a) where
+  fromLabel = PropertyName $ fromList $ symbolVal (Proxy :: Proxy p)
+
+-- | Run the callback whenever the provided property is changed.
 observeProperty ::
   (MonadUnliftIO m, FromJSON a) =>
   Mpv ->
-  PropertyName ->
+  PropertyName a ->
   (a -> m ()) ->
   m ()
 observeProperty mpv@Mpv {changes} p f = withRunInIO $ \run -> do
   i <- atomically $ stateTVar changes $ IM.insert $ run . f <=< fromJson
   command mpv "observe_property" i p
 
+--
+-- Commands
+--
+
+-- | Response from `loadfile`.
 newtype LoadData = LoadData
   { playlist_entry_id :: Int
   }
@@ -236,8 +313,11 @@ newtype LoadData = LoadData
 loadfile :: Mpv -> Text -> IO LoadData
 loadfile mpv = command mpv "loadfile"
 
-getProperty :: FromJSON a => Mpv -> PropertyName -> IO a
+clientName :: Mpv -> IO Text
+clientName mpv = command mpv "client_name"
+
+getProperty :: FromJSON a => Mpv -> PropertyName a -> IO a
 getProperty mpv = command mpv "get_property"
 
-setProperty :: Mpv -> PropertyName -> Value -> IO ()
+setProperty :: ToJSON a => Mpv -> PropertyName a -> a -> IO ()
 setProperty mpv = command mpv "set_property"

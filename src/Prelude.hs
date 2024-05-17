@@ -186,6 +186,7 @@ import Data.MonoTraversable as E
     MonoTraversable (otraverse),
     headMay,
     lastMay,
+    replaceElem,
   )
 import Data.MonoTraversable.Unprefixed as E
   ( all,
