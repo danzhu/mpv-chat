@@ -133,10 +133,10 @@ data MpvProtocolError
 -- | IPC connection state.
 data Mpv = Mpv
   { requests :: TBQueue (Command, TMVar Reply),
+    events :: TBQueue Event,
     waits :: TVar (IM.IdMap (TMVar Reply)),
-    handlers :: TVar (HashMap EventName (IO ())),
     changes :: TVar (IM.IdMap (Value -> IO ())),
-    events :: TChan Event,
+    handlers :: TVar (HashMap EventName (IO ())),
     closed :: TVar Bool
   }
 
@@ -150,10 +150,10 @@ newMpvClient :: (MonadIO m) => m Mpv
 newMpvClient =
   Mpv
     <$> newTBQueueIO 16
+    <*> newTBQueueIO 16
+    <*> newTVarIO (IM.empty 1)
     <*> newTVarIO (IM.empty 1)
     <*> newTVarIO mempty
-    <*> newTVarIO (IM.empty 1)
-    <*> newTChanIO
     <*> newTVarIO False
 
 produce :: Mpv -> IO Request
@@ -163,7 +163,7 @@ produce Mpv {requests, waits} = do
   pure $ ReqCommand {command = cmd, request_id = rid, async = True}
 
 consume :: Mpv -> Response -> IO ()
-consume Mpv {events} (ResEvent evt) = atomically $ writeTChan events evt
+consume Mpv {events} (ResEvent evt) = atomically $ writeTBQueue events evt
 consume Mpv {waits} (ResReply rid rep) = atomically $ do
   v <- stateTVar waits $ IM.remove rid
   w <- expect MpvNoReqId v
@@ -200,9 +200,9 @@ recv mpv app =
 -- handle events in a separate thread to avoid deadlocks when user calls mpv
 -- within handlers
 handle :: Mpv -> IO a
-handle Mpv {changes, handlers, events} =
+handle Mpv {events, changes, handlers} =
   forever $
-    atomically (readTChan events) >>= \case
+    atomically (readTBQueue events) >>= \case
       EvtPropChange i _ v -> do
         h <- IM.lookup i <$> readTVarIO changes
         traverse_ ($ v) h
