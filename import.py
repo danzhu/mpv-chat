@@ -58,13 +58,6 @@ def load(conn: sqlite3.Connection, data: Any) -> None:
     video = data["video"]
     video_id = video["id"]
 
-    logger.info("removing old data")
-    conn.execute("DELETE FROM twitch_badge WHERE video_id = ?", (video_id,))
-    conn.execute("DELETE FROM emote_third_party WHERE video_id = ?", (video_id,))
-    conn.execute("DELETE FROM comment WHERE content_id = ?", (video_id,))
-    conn.execute("DELETE FROM chapter WHERE video_id = ?", (video_id,))
-    conn.execute("DELETE FROM video WHERE id = ?", (video_id,))
-
     logger.info("writing video")
     conn.execute(
         "INSERT INTO video VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -264,6 +257,15 @@ def download_chat(id: int, p: Path) -> None:
     )
 
 
+def remove_chat(conn: sqlite3.Connection, id: int) -> None:
+    logger.info("removing old data")
+    conn.execute("DELETE FROM twitch_badge WHERE video_id = ?", (id,))
+    conn.execute("DELETE FROM emote_third_party WHERE video_id = ?", (id,))
+    conn.execute("DELETE FROM comment WHERE content_id = ?", (id,))
+    conn.execute("DELETE FROM chapter WHERE video_id = ?", (id,))
+    conn.execute("DELETE FROM video WHERE id = ?", (id,))
+
+
 def import_chat(conn: sqlite3.Connection, p: Path) -> None:
     logger.info("loading json")
     with p.open(encoding="utf-8") as f:
@@ -282,7 +284,7 @@ def start_video(id: int, ipc_path: Path) -> None:
 
 
 def main() -> None:
-    from argparse import ArgumentParser
+    from argparse import ArgumentParser, BooleanOptionalAction
 
     p = ArgumentParser()
     p.add_argument("id", help="video id or url")
@@ -291,9 +293,11 @@ def main() -> None:
         type=Path,
         help="mpv ipc path, used to auto start video",
     )
+    p.add_argument("-f", "--force", action=BooleanOptionalAction)
     args = p.parse_args()
     id_str: str = args.id
     ipc_path: Path | None = args.ipc_path
+    force: bool = args.force
 
     logging.basicConfig(format="[%(levelname)s] %(message)s", level=logging.INFO)
 
@@ -325,7 +329,7 @@ def main() -> None:
             stored = bool(
                 conn.execute("SELECT 1 FROM video WHERE id = ?", (id,)).fetchone()
             )
-            if stored:
+            if stored and not force:
                 logger.info("already stored")
             else:
                 path = ROOT / f"chat/{id}.json"
@@ -333,6 +337,8 @@ def main() -> None:
                     logger.info("already downloaded")
                 else:
                     download_chat(id, path)
+                if force:
+                    remove_chat(conn, id)
                 import_chat(conn, path)
         except Exception:
             conn.execute("ROLLBACK")
