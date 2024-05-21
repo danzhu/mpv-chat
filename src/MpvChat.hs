@@ -178,7 +178,7 @@ runMpvChat Config {ipcPath, port} = evalContT $ do
           _ -> unload
         observeProperty mpv #pause $ atomically . writeTVar active . not
         observeProperty mpv #"sub-delay" $ atomically . update . (#delay !~)
-        observeEvent_ mpv "seek" $ atomically $ writeTVar seek True
+        observeEvent_ mpv #seek $ atomically $ writeTVar seek True
 
   contT_ $ withTask_ $ runSettings settings $ runWai app
   contT_ $

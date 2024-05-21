@@ -16,6 +16,7 @@ module Network.Mpv
     EventName (..),
     Command,
     Error,
+    MpvEvent,
     MpvProperty,
     CommandType (commandValue),
 
@@ -64,10 +65,6 @@ import GHC.TypeLits (KnownSymbol, Symbol, symbolVal)
 
 -- | Newtype for mpv command names, e.g. "loadfile".
 newtype CommandName = CommandName Text
-  deriving newtype (Eq, Ord, Hashable, Show, Read, FromJSON, ToJSON, IsString)
-
--- | Newtype for mpv event names, e.g. "seek".
-newtype EventName = EventName Text
   deriving newtype (Eq, Ord, Hashable, Show, Read, FromJSON, ToJSON, IsString)
 
 -- | Type for errors returned from mpv (string).
@@ -259,6 +256,25 @@ instance (ToJSON a, CommandType c) => CommandType (a -> c) where
 -- Use printf-style command name/args passing.
 command :: (CommandType c) => Mpv -> CommandName -> c
 command mpv = commandValue mpv []
+
+class MpvEvent (e :: Symbol) a | e -> a
+
+instance MpvEvent "file-loaded" ()
+
+instance MpvEvent "seek" ()
+
+instance MpvEvent "playback-restart" ()
+
+instance MpvEvent "video-reconfig" ()
+
+instance MpvEvent "audio-reconfig" ()
+
+-- | Newtype for mpv event names, e.g. "seek".
+newtype EventName = EventName Text
+  deriving newtype (Eq, Ord, Hashable, Show, Read, FromJSON, ToJSON, IsString)
+
+instance (KnownSymbol e, MpvEvent e a) => IsLabel e EventName where
+  fromLabel = EventName $ fromList $ symbolVal (Proxy :: Proxy e)
 
 -- | Run the callback whenever the provided event is received.
 observeEvent_ :: (MonadUnliftIO m) => Mpv -> EventName -> m () -> m ()
