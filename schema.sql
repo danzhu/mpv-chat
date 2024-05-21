@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS game(
 CREATE TABLE IF NOT EXISTS video(
     id INTEGER PRIMARY KEY,
     title TEXT NOT NULL,
+    description TEXT,
     created_at TEXT NOT NULL,
     start INTEGER NOT NULL,
     end INTEGER NOT NULL,

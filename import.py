@@ -67,10 +67,11 @@ def load(conn: sqlite3.Connection, data: Any) -> None:
 
     logger.info("writing video")
     conn.execute(
-        "INSERT INTO video VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO video VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             video_id,
             video["title"],
+            video.get("description"),
             as_datetime(video["created_at"]),
             video["start"],
             video["end"],
