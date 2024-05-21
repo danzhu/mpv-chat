@@ -293,7 +293,7 @@ def main() -> None:
         type=Path,
         help="mpv ipc path, used to auto start video",
     )
-    p.add_argument("-f", "--force", action=BooleanOptionalAction)
+    p.add_argument("-f", "--force", action=BooleanOptionalAction, default=False)
     args = p.parse_args()
     id_str: str = args.id
     ipc_path: Path | None = args.ipc_path
