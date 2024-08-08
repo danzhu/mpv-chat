@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS emote_third_party(
 CREATE TABLE IF NOT EXISTS twitch_badge(
     video_id INTEGER NOT NULL REFERENCES video(id),
     name TEXT NOT NULL,
-    version INTEGER NOT NULL,
+    version TEXT NOT NULL,
     title TEXT NOT NULL,
     description TEXT NOT NULL,
     bytes TEXT NOT NULL REFERENCES file(id),
