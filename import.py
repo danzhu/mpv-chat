@@ -278,7 +278,7 @@ def start_video(id: int, ipc_path: Path) -> None:
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
         s.connect(bytes(ipc_path))
         url = URL_FMT.format(id=id)
-        msg = as_json({"command": ["loadfile", url]}) + "\n"
+        msg = as_json({"command": ["loadfile", url, "append-play"]}) + "\n"
         s.sendall(msg.encode())
         s.shutdown(socket.SHUT_RDWR)
 
