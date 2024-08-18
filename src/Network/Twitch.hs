@@ -11,16 +11,17 @@ module Network.Twitch
 where
 
 import Data.Aeson (FromJSON)
+import Data.Int (Int64)
 import Database.SQLite.Simple.FromField (FromField)
 import Database.SQLite.Simple.ToField (ToField)
 
-newtype VideoId = VideoId Int
+newtype VideoId = VideoId Int64
   deriving newtype (Eq, Ord, Hashable, Show, Read, FromJSON, FromField, ToField)
 
-newtype UserId = UserId Int
+newtype UserId = UserId Int64
   deriving newtype (Eq, Ord, Hashable, Show, Read, FromJSON, FromField, ToField)
 
-newtype ChannelId = ChannelId Int
+newtype ChannelId = ChannelId Int64
   deriving newtype (Eq, Ord, Hashable, Show, Read, FromJSON, FromField, ToField)
 
 newtype Emoticon = Emoticon
