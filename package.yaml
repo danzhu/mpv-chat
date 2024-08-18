@@ -81,6 +81,7 @@ library:
     - mono-traversable
     - optics-core
     - optics-th
+    - regex-tdfa
     - scientific
     - sqlite-simple
     - unliftio

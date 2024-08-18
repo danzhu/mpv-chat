@@ -37,6 +37,7 @@ import Network.Mpv
     waitMpv,
     withMpv,
   )
+import Network.Twitch (VideoId)
 import Network.Wai
   ( pathInfo,
     responseBuilder,
@@ -65,6 +66,7 @@ import Network.Wai.Monad
     runWai,
   )
 import System.FilePath.Posix (takeDirectory)
+import Text.Regex.TDFA ((=~~))
 import UnliftIO.Concurrent (threadDelay)
 import UnliftIO.Environment (getExecutablePath)
 
@@ -92,6 +94,9 @@ post :: Wai () -> WaiApp
 post app = routePost err $ do
   app
   pure $ responsePlainStatus ok200 []
+
+parseVideoId :: Text -> Maybe VideoId
+parseVideoId = treadMaybe <=< (=~~ ("[0-9]{10}" :: String))
 
 runMpvChat :: Config -> IO ()
 runMpvChat Config {ipcPath, port} = evalContT $ do
@@ -173,8 +178,7 @@ runMpvChat Config {ipcPath, port} = evalContT $ do
       setup = do
         observeProperty mpv #"filename/no-ext" $ \case
           -- TODO: show different message for non-twitch urls
-          -- FIXME: this doesn't handle query params
-          Just (treadMaybe -> Just vid) -> load vid
+          Just (parseVideoId -> Just vid) -> load vid
           _ -> unload
         observeProperty mpv #pause $ atomically . writeTVar active . not
         observeProperty mpv #"sub-delay" $ atomically . update . (#delay !~)
