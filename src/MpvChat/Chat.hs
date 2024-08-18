@@ -103,8 +103,12 @@ fmtWord word = do
     | Just id <- lookup word emotes ->
         fmtEmote EmoteThirdParty word $ "/emote-third-party/" <> id
     | Just ('@', name) <- uncons word ->
+        -- FIXME: mention doesn't work on user page,
+        -- since the filtering happens in db
         span_ [class_ "mention"] do
           "@"
+          -- TODO: create color index at video start,
+          -- so that it works across long distances?
           gets (lookup name) >>= \case
             Nothing -> toHtml name
             Just Comment {userColor, commenter = User {id = uid}} ->
@@ -158,6 +162,7 @@ renderChat
                 "s"
               "]"
           ul_ [class_ "comments"] $
+            -- TODO; render timestamp if far apart enough
             traverse_ fmtComment $
               reverse comments
     pure $
