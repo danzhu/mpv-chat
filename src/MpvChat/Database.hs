@@ -3,6 +3,7 @@ module MpvChat.Database
     loadVideos,
     loadChapter,
     loadEmote,
+    loadFile,
     loadComments,
   )
 where
@@ -24,6 +25,7 @@ import MpvChat.Data
     Highlight (Highlight, NameOnly, NoHighlight),
     User (User),
     Video (Video),
+    VideoContext (VideoContext),
   )
 import qualified MpvChat.Data
 import qualified Network.Twitch as Tv
@@ -42,7 +44,13 @@ loadVideo conn vid = do
   emotes <-
     mapFromList
       <$> query conn "SELECT name, data FROM emote_third_party WHERE video_id = ?" (Only vid)
-  pure $ Video {id = vid, title, createdAt, channelId, emotes}
+  badges <-
+    mapFromList . map mkBadge
+      <$> query conn "SELECT name, version, bytes FROM twitch_badge WHERE video_id = ?" (Only vid)
+  let context = VideoContext {emotes, badges}
+  pure $ Video {id = vid, title, createdAt, channelId, context}
+  where
+    mkBadge (name, version, data_) = (Tv.Badge name version, data_)
 
 -- TODO: make a separate Video type for listing
 loadVideos :: Connection -> IO [Video]
@@ -54,19 +62,20 @@ loadVideos conn =
       ()
   where
     mkVideo (id, title, createdAt, channelId) =
-      Video {id, title, createdAt, channelId, emotes = mempty}
+      Video {id, title, createdAt, channelId, context = def}
 
-loadEmote :: Connection -> Text -> Bool -> IO (Maybe ByteString)
-loadEmote conn id thirdParty =
-  headOf (each % _Only) <$> query conn q (Only id)
-  where
-    q =
-      if thirdParty
-        then "SELECT data FROM file WHERE id = ?"
-        else
-          "SELECT f.data FROM emote e \
-          \JOIN file f ON f.id = e.data \
-          \WHERE e.id = ?"
+loadEmote :: Connection -> Text -> IO (Maybe ByteString)
+loadEmote conn id =
+  headOf (each % _Only)
+    <$> query
+      conn
+      "SELECT f.data FROM emote e \
+      \JOIN file f ON f.id = e.data \
+      \WHERE e.id = ?"
+      (Only id)
+
+loadFile :: Connection -> Text -> IO (Maybe ByteString)
+loadFile conn id = headOf (each % _Only) <$> query conn "SELECT data FROM file WHERE id = ?" (Only id)
 
 loadChapter :: Connection -> Tv.VideoId -> NominalDiffTime -> IO (Maybe Text)
 loadChapter conn vid subTime =
@@ -101,7 +110,7 @@ loadComments conn vid time uid =
     mkComment
       ( createdAt,
         JSONField fragments,
-        JSONField badges :: JSONField [Tv.Badge],
+        JSONField userBadges,
         userColor,
         commenterId,
         displayName,
@@ -113,13 +122,14 @@ loadComments conn vid time uid =
           { createdAt,
             commenter = User {id = commenterId, displayName, name, bio},
             fragments,
+            userBadges,
             userColor,
             highlight =
               maximum
                 [ maybe NoHighlight (bool NameOnly Highlight) highlight,
                   bool NoHighlight NameOnly $
-                    elemOf (each % #_id) "moderator" badges,
+                    elemOf (each % #_id) "moderator" userBadges,
                   bool NoHighlight NameOnly $
-                    elemOf (each % #_id) "partner" badges
+                    elemOf (each % #_id) "partner" userBadges
                 ]
           }

@@ -45,7 +45,7 @@ data Badge = Badge
   { _id :: Text,
     version :: Text
   }
-  deriving stock (Generic)
-  deriving anyclass (FromJSON)
+  deriving stock (Eq, Ord, Generic, Show)
+  deriving anyclass (FromJSON, Hashable)
 
 makeFieldLabelsNoPrefix ''Badge

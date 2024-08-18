@@ -31,10 +31,10 @@ import MpvChat.Data
   ( ChatState (ChatState),
     Comment (Comment),
     EmoteScope (EmoteThirdParty, EmoteTwitch),
-    EmoteSource,
     Highlight (Highlight, NoHighlight),
     User (User),
     Video (Video),
+    VideoContext (VideoContext),
     View (View),
   )
 import qualified MpvChat.Data
@@ -45,13 +45,13 @@ import Network.URI
     uriAuthority,
   )
 
-type Fmt = HtmlT (RWS EmoteSource () (HashMap Text Comment))
+type Fmt = HtmlT (RWS VideoContext () (HashMap Text Comment))
 
 fmtComment :: Comment -> Fmt ()
 fmtComment
   c@Comment
-    { fragments,
-      commenter = commenter@User {id = uid, displayName, name},
+    { commenter = User {id = uid, displayName, name, bio},
+      fragments,
       userColor,
       highlight
     } = do
@@ -64,31 +64,43 @@ fmtComment
             style_ $ maybe "" ("background-color: " <>) userColor,
             href_ $ "/user/" <> tshow uid
           ]
-          $ fmtUser commenter
+          $ div_ [class_ "details"]
+          $ do
+            div_ [class_ "display-name"] $ fmtUser c
+            for_ bio $ \b -> div_ [class_ "bio"] $ toHtml b
         div_ [class_ "message"] do
           unless (highlight == NoHighlight) do
-            span_
-              [ class_ "name",
-                style_ $ maybe "" ("color: " <>) userColor
-              ]
-              $ toHtml displayName
+            fmtUser c
             ": "
           traverse_ fmtFragment fragments
     modify' $ insertMap displayName c . insertMap name c
 
-fmtUser :: User -> Fmt ()
-fmtUser User {displayName, name, bio} =
-  div_ [class_ "details"] $ do
-    span_ [class_ "name"] do
-      toHtml displayName
-      " ["
-      toHtml name
-      "]"
-    for_ bio $ \b -> div_ $ do
-      "Bio: "
-      -- FIXME: find out why there are bad chars in twitch response,
-      -- which kill the output if not escaped to ascii
-      span_ [class_ "bio"] $ toHtml b
+fmtUser :: Comment -> Fmt ()
+fmtUser
+  Comment
+    { commenter = User {displayName, name},
+      userBadges,
+      userColor
+    } =
+    span_
+      [ class_ "name",
+        style_ $ maybe "" ("color: " <>) userColor
+      ]
+      do
+        VideoContext {badges} <- ask
+        for_ userBadges \badge@Tv.Badge {_id, version} -> do
+          for_ (lookup badge badges) \hash -> do
+            img_
+              [ class_ "badge",
+                src_ $ "/file/" <> hash,
+                title_ $ _id <> " " <> version
+              ]
+            " "
+        toHtml displayName
+        when (name /= toLower displayName) do
+          " ["
+          toHtml name
+          "]"
 
 fmtFragment :: Tv.Fragment -> Fmt ()
 fmtFragment Tv.Fragment {text, emoticon}
@@ -98,10 +110,10 @@ fmtFragment Tv.Fragment {text, emoticon}
 
 fmtWord :: Text -> Fmt ()
 fmtWord word = do
-  emotes <- ask
+  VideoContext {emotes} <- ask
   if
     | Just id <- lookup word emotes ->
-        fmtEmote EmoteThirdParty word $ "/emote-third-party/" <> id
+        fmtEmote EmoteThirdParty word $ "/file/" <> id
     | Just ('@', name) <- uncons word ->
         -- FIXME: mention doesn't work on user page,
         -- since the filtering happens in db
@@ -139,7 +151,7 @@ renderChat :: Connection -> ChatState -> Maybe Tv.UserId -> IO View
 renderChat
   conn
   ChatState
-    { video = Just Video {id = vid, title, createdAt = startTime, emotes},
+    { video = Just Video {id = vid, title, createdAt = startTime, context},
       playbackTime = Just playbackTime,
       delay
     }
@@ -168,7 +180,7 @@ renderChat
     pure $
       View
         { title,
-          content = fst $ evalRWS (renderTextT body) emotes mempty,
+          content = fst $ evalRWS (renderTextT body) context mempty,
           scroll = True
         }
 renderChat _ _ _ =

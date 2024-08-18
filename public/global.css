@@ -84,6 +84,10 @@ body {
     text-decoration: inherit;
 }
 
+.name {
+    color: #a970ff;
+}
+
 .details {
     display: none;
     position: absolute;
@@ -100,6 +104,7 @@ body {
 }
 
 .bio {
+    margin-top: 0.5em;
     font-style: italic;
 }
 
@@ -108,6 +113,12 @@ body {
     line-height: 2;
     overflow: auto;
     word-wrap: break-word;
+}
+
+.badge {
+    margin: calc(0.5lh - 0.5em) 0;
+    height: 1em;
+    vertical-align: top;
 }
 
 .emote {
@@ -121,6 +132,5 @@ body {
 }
 
 .mention > .name {
-    color: #a970ff;
     text-decoration: underline;
 }

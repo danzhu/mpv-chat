@@ -3,7 +3,7 @@
 module MpvChat.Data
   ( View (..),
     EmoteScope (..),
-    EmoteSource,
+    VideoContext (..),
     Video (..),
     User (..),
     Highlight (..),
@@ -30,15 +30,24 @@ data EmoteScope
   = EmoteTwitch
   | EmoteThirdParty
 
--- third party emote text -> emote hash
-type EmoteSource = HashMap Text Text
+data VideoContext = VideoContext
+  { -- third party emote text -> emote hash
+    emotes :: HashMap Text Text,
+    -- (badge name, badge version) -> hash
+    badges :: HashMap Tv.Badge Text
+  }
+
+makeFieldLabelsNoPrefix ''VideoContext
+
+instance Default VideoContext where
+  def = VideoContext mempty mempty
 
 data Video = Video
   { id :: Tv.VideoId,
     title :: Text,
     createdAt :: UTCTime,
     channelId :: Tv.ChannelId,
-    emotes :: EmoteSource
+    context :: VideoContext
   }
 
 makeFieldLabelsNoPrefix ''Video
@@ -62,6 +71,7 @@ data Comment = Comment
   { createdAt :: UTCTime,
     commenter :: User,
     fragments :: [Tv.Fragment],
+    userBadges :: [Tv.Badge],
     userColor :: Maybe Text,
     highlight :: Highlight
   }

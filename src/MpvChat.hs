@@ -20,7 +20,7 @@ import Data.Text.IO (putStrLn)
 import Database.SQLite.Simple (withConnection)
 import MpvChat.Chat (renderChat)
 import MpvChat.Data (View)
-import MpvChat.Database (loadEmote, loadVideo)
+import MpvChat.Database (loadEmote, loadFile, loadVideo)
 import MpvChat.Videos (renderVideos)
 import Network.HTTP.Types.Status
   ( Status,
@@ -140,12 +140,12 @@ runMpvChat Config {ipcPath, port} = evalContT $ do
           ["user", treadMaybe -> Just uid] -> page $ messages (Just uid)
           ["emote", id] ->
             routeGet err do
-              liftIO (loadEmote conn id False) >>= \case
+              liftIO (loadEmote conn id) >>= \case
                 Just bs -> pure $ responseBuilder ok200 [] $ byteString bs
                 Nothing -> err notFound404
-          ["emote-third-party", name] ->
+          ["file", name] ->
             routeGet err do
-              liftIO (loadEmote conn name True) >>= \case
+              liftIO (loadFile conn name) >>= \case
                 Just bs -> pure $ responseBuilder ok200 [] $ byteString bs
                 Nothing -> err notFound404
           -- videos
