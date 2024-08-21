@@ -1,12 +1,8 @@
 module Control.Concurrent.Task
   ( Task,
-    killTask,
-    newEmptyTask,
-    newTask,
     startTask,
     stopTask,
     withEmptyTask,
-    withTask,
     withTask_,
   )
 where
@@ -14,26 +10,21 @@ where
 import UnliftIO.Async
   ( Async,
     async,
-    cancel,
     link,
     uninterruptibleCancel,
+    withAsync,
   )
+import UnliftIO.Exception (mask, mask_)
 
 newtype Task = Task (TVar (Maybe (Async ())))
 
 replace :: (MonadIO m) => Task -> Maybe (Async ()) -> m ()
 replace (Task v) n = do
   t <- atomically $ swapTVar v n
-  traverse_ cancel t
+  traverse_ uninterruptibleCancel t
 
 newEmptyTask :: (MonadIO m) => m Task
 newEmptyTask = Task <$> newTVarIO Nothing
-
-newTask :: (MonadUnliftIO m) => m () -> m Task
-newTask f = do
-  a <- async f
-  link a
-  Task <$> newTVarIO (Just a)
 
 killTask :: (MonadIO m) => Task -> m ()
 killTask (Task v) = do
@@ -43,19 +34,17 @@ killTask (Task v) = do
 withEmptyTask :: (MonadUnliftIO m) => (Task -> m a) -> m a
 withEmptyTask = bracket newEmptyTask killTask
 
-withTask :: (MonadUnliftIO m) => m () -> (Task -> m a) -> m a
-withTask f = bracket (newTask f) killTask
-
 withTask_ :: (MonadUnliftIO m) => m () -> m a -> m a
-withTask_ f = withTask f . const
+withTask_ action inner = withAsync action $ \a -> link a *> inner
 
 startTask :: (MonadUnliftIO m) => Task -> m () -> m ()
 startTask t f = do
-  w <- newEmptyTMVarIO
-  a <- async $ atomically (readTMVar w) *> f
-  link a
-  replace t $ Just a
-  atomically $ putTMVar w ()
+  w <- newTVarIO False
+  mask $ \restore -> do
+    a <- async $ restore $ atomically (guard =<< readTVar w) *> f
+    replace t $ Just a
+    atomically $ writeTVar w True
+    restore $ link a
 
 stopTask :: (MonadIO m) => Task -> m ()
-stopTask t = replace t Nothing
+stopTask t = liftIO $ mask_ $ replace t Nothing
