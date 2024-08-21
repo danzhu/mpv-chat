@@ -21,7 +21,8 @@ import Database.SQLite.Simple
   )
 import Database.Sqlite.Adapter (JSONField (JSONField))
 import MpvChat.Data
-  ( Comment (Comment),
+  ( Badge (Badge),
+    Comment (Comment),
     Highlight (Highlight, NameOnly, NoHighlight),
     User (User),
     Video (Video),
@@ -46,11 +47,17 @@ loadVideo conn vid = do
       <$> query conn "SELECT name, data FROM emote_third_party WHERE video_id = ?" (Only vid)
   badges <-
     mapFromList . map mkBadge
-      <$> query conn "SELECT name, version, bytes FROM twitch_badge WHERE video_id = ?" (Only vid)
+      <$> query
+        conn
+        "SELECT name, version, title, description, bytes \
+        \FROM twitch_badge \
+        \WHERE video_id = ?"
+        (Only vid)
   let context = VideoContext {emotes, badges}
   pure $ Video {id = vid, title, createdAt, channelId, context}
   where
-    mkBadge (name, version, data_) = (Tv.Badge name version, data_)
+    mkBadge (name, version, title, description, bytes) =
+      (Tv.Badge name version, Badge {title, description, bytes})
 
 -- TODO: make a separate Video type for listing
 loadVideos :: Connection -> IO [Video]

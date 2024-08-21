@@ -3,6 +3,7 @@
 module MpvChat.Data
   ( View (..),
     EmoteScope (..),
+    Badge (..),
     VideoContext (..),
     Video (..),
     User (..),
@@ -30,11 +31,18 @@ data EmoteScope
   = EmoteTwitch
   | EmoteThirdParty
 
+data Badge = Badge
+  { title :: Text,
+    description :: Text,
+    bytes :: Text
+  }
+
+makeFieldLabelsNoPrefix ''Badge
+
 data VideoContext = VideoContext
   { -- third party emote text -> emote hash
     emotes :: HashMap Text Text,
-    -- (badge name, badge version) -> hash
-    badges :: HashMap Tv.Badge Text
+    badges :: HashMap Tv.Badge Badge
   }
 
 makeFieldLabelsNoPrefix ''VideoContext

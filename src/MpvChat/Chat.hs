@@ -28,7 +28,8 @@ import Lucid.Html5
     ul_,
   )
 import MpvChat.Data
-  ( ChatState (ChatState),
+  ( Badge (Badge),
+    ChatState (ChatState),
     Comment (Comment),
     EmoteScope (EmoteThirdParty, EmoteTwitch),
     Highlight (Highlight, NoHighlight),
@@ -44,6 +45,7 @@ import Network.URI
   ( parseURI,
     uriAuthority,
   )
+import Optics.AffineFold (afolding)
 
 type Fmt = HtmlT (RWS VideoContext () (HashMap Text Comment))
 
@@ -88,12 +90,15 @@ fmtUser
       ]
       do
         VideoContext {badges} <- ask
-        for_ userBadges \badge@Tv.Badge {_id, version} -> do
-          for_ (lookup badge badges) \hash -> do
+        forOf_
+          (each % afolding (`lookup` badges))
+          userBadges
+          \Badge {title, bytes} -> do
             img_
               [ class_ "badge",
-                src_ $ "/file/" <> hash,
-                title_ $ _id <> " " <> version
+                src_ $ "/file/" <> bytes,
+                title_ title,
+                alt_ title
               ]
             " "
         toHtml displayName
