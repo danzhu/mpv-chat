@@ -245,7 +245,7 @@ def download_chat(id: int, p: Path) -> None:
     logger.info("downloading chat")
     subprocess.run(
         [
-            ROOT / "chat/TwitchDownloaderCLI",
+            "TwitchDownloaderCLI",
             "chatdownload",
             "--id",
             str(id),

@@ -13,7 +13,7 @@ stack build
 ## Dependencies
 
 Download [TwitchDownloaderCLI](https://github.com/lay295/TwitchDownloader) and
-put the executable in `chat` directory under project root.
+put the executable in `$PATH`.
 
 ## Usage
 
