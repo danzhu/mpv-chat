@@ -3,12 +3,11 @@ module MpvChat.Chat
   )
 where
 
-import Data.Time.Clock (addUTCTime)
+import Data.Time.Clock (NominalDiffTime, addUTCTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import Database.SQLite.Simple (Connection)
 import Lucid.Base
   ( HtmlT,
-    renderText,
     renderTextT,
     toHtml,
   )
@@ -29,7 +28,6 @@ import Lucid.Html5
   )
 import MpvChat.Data
   ( Badge (Badge),
-    ChatState (ChatState),
     Comment (Comment),
     EmoteScope (EmoteThirdParty, EmoteTwitch),
     Highlight (Highlight, NoHighlight),
@@ -152,14 +150,18 @@ fmtEmote scope txt url =
       EmoteTwitch -> "twitch"
       EmoteThirdParty -> "third-party"
 
-renderChat :: Connection -> ChatState -> Maybe Tv.UserId -> IO View
+renderChat ::
+  Connection ->
+  Video ->
+  NominalDiffTime ->
+  NominalDiffTime ->
+  Maybe Tv.UserId ->
+  IO View
 renderChat
   conn
-  ChatState
-    { video = Just Video {id = vid, title, createdAt = startTime, context},
-      playbackTime = Just playbackTime,
-      delay
-    }
+  Video {id = vid, title, createdAt = startTime, context}
+  playbackTime
+  delay
   uid = do
     let subTime = playbackTime - delay
         currentTime = addUTCTime subTime startTime
@@ -188,10 +190,3 @@ renderChat
           content = fst $ evalRWS (renderTextT body) context mempty,
           scroll = True
         }
-renderChat _ _ _ =
-  pure $
-    View
-      { title = "Chat",
-        content = renderText $ pre_ "idle",
-        scroll = True
-      }

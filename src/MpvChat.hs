@@ -19,7 +19,8 @@ import qualified Data.Conduit.Combinators as C
 import Data.Text.IO (putStrLn)
 import Database.SQLite.Simple (withConnection)
 import MpvChat.Chat (renderChat)
-import MpvChat.Data (View)
+import MpvChat.Data (ChatState (ChatState), View)
+import qualified MpvChat.Data
 import MpvChat.Database (loadEmote, loadFile, loadVideo)
 import MpvChat.Videos (renderVideos)
 import Network.HTTP.Types.Status
@@ -129,8 +130,15 @@ runMpvChat Config {ipcPath, port} = evalContT $ do
             guard . (< new) =<< readTVar ver
             writeTVar ver new
             pure st
-          chat <- liftIO $ renderChat conn st uid
-          yield chat
+          view <- case st of
+            ChatState
+              { video = Just video,
+                playbackTime = Just playbackTime,
+                delay
+              } -> do
+                liftIO $ renderChat conn video playbackTime delay uid
+            _ -> liftIO $ renderVideos conn
+          yield view
           -- update at most once per 100ms
           threadDelay 100_000
       app =
@@ -152,7 +160,7 @@ runMpvChat Config {ipcPath, port} = evalContT $ do
           ["videos"] -> page $ do
             videos <- liftIO $ renderVideos conn
             yield videos
-            threadDelay maxBound
+            forever $ threadDelay maxBound
           -- actions
           ["loadfile"] -> post $ do
             url <- join $ asks requestBS
