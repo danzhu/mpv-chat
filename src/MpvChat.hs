@@ -172,22 +172,11 @@ runMpvChat Config {ipcPath, port} = evalContT $ do
           _ -> appStatic err "public"
       update f = modifyTVar' chatState $ (#version %!~ succ) . f
       load vid = startTask taskLoad $ do
-        v <- loadVideo conn vid
-        atomically $ do
-          -- TODO: fix glitch where playback-time from last video is used before
-          -- the new video is loaded
-          update $ #video ?!~ v
-          writeTVar seek True
-      unload =
-        startTask taskLoad $
-          atomically $
-            update $
-              #video !~ Nothing
+        v <- for vid $ loadVideo conn
+        atomically $ update $ (#video !~ v) . (#playbackTime !~ Nothing)
       setup = do
-        observeProperty mpv #"filename/no-ext" $ \case
-          -- TODO: show different message for non-twitch urls
-          Just (parseVideoId -> Just vid) -> load vid
-          _ -> unload
+        -- TODO: show different message for non-twitch urls
+        observeProperty mpv #"filename/no-ext" $ load . (parseVideoId =<<)
         observeProperty mpv #pause $ atomically . writeTVar active . not
         observeProperty mpv #"sub-delay" $ atomically . update . (#delay !~)
         observeEvent_ mpv #seek $ atomically $ writeTVar seek True
@@ -198,12 +187,19 @@ runMpvChat Config {ipcPath, port} = evalContT $ do
       forever $ do
         timeout <- registerDelay 1_000_000
         atomically $ do
-          guard . isJust . (^. #video) =<< readTVar chatState
+          st <- readTVar chatState
+          -- if no video, there's no playback time, so block
+          guard $ isJust $ st ^. #video
           readTVar seek >>= \case
+            -- if seeking, immediately continue for low latency
             True -> writeTVar seek False
             False -> do
-              guard =<< readTVar active
+              -- otherwise, wait for timeout first
               guard =<< readTVar timeout
+              -- if we have playback time already,
+              -- only continue when not paused
+              when (isJust $ st ^. #playbackTime) $
+                guard =<< readTVar active
         let unavail (MpvIpcError "property unavailable") = Just ()
             unavail _ = Nothing
         time <- tryJust unavail $ getProperty mpv #"playback-time"

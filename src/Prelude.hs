@@ -176,7 +176,13 @@ import Data.IntMap.Strict as E (IntMap)
 import Data.IntSet as E (IntSet)
 import Data.List.NonEmpty as E (NonEmpty)
 import Data.Map.Strict as E (Map)
-import Data.Maybe as E (Maybe (Just, Nothing), fromMaybe, isJust, maybe)
+import Data.Maybe as E
+  ( Maybe (Just, Nothing),
+    fromMaybe,
+    isJust,
+    isNothing,
+    maybe,
+  )
 import Data.Maybe.Optics as E ((%?), _Just, _Nothing)
 import Data.MonoTraversable as E
   ( Element,
