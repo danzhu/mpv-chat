@@ -25,6 +25,7 @@ import MpvChat.Database (loadEmote, loadFile, loadVideo)
 import MpvChat.Videos (renderVideos)
 import Network.HTTP.Types.Status
   ( Status,
+    badRequest400,
     notFound404,
     ok200,
   )
@@ -52,8 +53,7 @@ import Network.Wai.Handler.Warp
     setPort,
   )
 import Network.Wai.Monad
-  ( Wai,
-    WaiApp,
+  ( WaiApp,
     appFile,
     appStatic,
     data_,
@@ -66,9 +66,10 @@ import Network.Wai.Monad
     routePost,
     runWai,
   )
-import System.FilePath.Posix (takeDirectory)
+import System.FilePath (takeDirectory, (</>))
 import Text.Regex.TDFA ((=~~))
 import UnliftIO.Concurrent (threadDelay)
+import UnliftIO.Directory (listDirectory, makeAbsolute)
 import UnliftIO.Environment (getExecutablePath)
 
 data Config = Config
@@ -91,13 +92,16 @@ page vs =
   where
     enc v = def {data_ = encode v}
 
-post :: Wai () -> WaiApp
-post app = routePost err $ do
-  app
-  pure $ responsePlainStatus ok200 []
-
 parseVideoId :: Text -> Maybe VideoId
 parseVideoId = treadMaybe <=< (=~~ ("[0-9]{10}" :: String))
+
+videoPath :: (MonadIO m) => VideoId -> m Text
+videoPath vid = do
+  dir <- makeAbsolute "vod"
+  names <- listDirectory dir
+  case find (\name -> parseVideoId (fromList name) == Just vid) names of
+    Just path -> pure $ fromList $ dir </> path
+    Nothing -> pure $ "https://www.twitch.tv/videos/" <> tshow vid
 
 runMpvChat :: Config -> IO ()
 runMpvChat Config {ipcPath, port} = evalContT $ do
@@ -162,9 +166,14 @@ runMpvChat Config {ipcPath, port} = evalContT $ do
             yield videos
             forever $ threadDelay maxBound
           -- actions
-          ["loadfile"] -> post $ do
-            url <- join $ asks requestBS
-            void $ liftIO $ loadfile mpv $ decodeUtf8 url
+          ["loadfile"] -> routePost err $ do
+            body <- join $ asks requestBS
+            case treadMaybe $ decodeUtf8 body of
+              Nothing -> err badRequest400
+              Just id -> do
+                path <- videoPath id
+                void $ liftIO $ loadfile mpv path
+                pure $ responsePlainStatus ok200 []
           -- docs
           ["doc"] -> pure $ responseRedirect "/doc/all/index.html"
           "doc" : _ -> appStatic err installPath
@@ -176,7 +185,7 @@ runMpvChat Config {ipcPath, port} = evalContT $ do
         atomically $ update $ (#video !~ v) . (#playbackTime !~ Nothing)
       setup = do
         -- TODO: show different message for non-twitch urls
-        observeProperty mpv #"filename/no-ext" $ load . (parseVideoId =<<)
+        observeProperty mpv #filename $ load . (parseVideoId =<<)
         observeProperty mpv #pause $ atomically . writeTVar active . not
         observeProperty mpv #"sub-delay" $ atomically . update . (#delay !~)
         observeEvent_ mpv #seek $ atomically $ writeTVar seek True

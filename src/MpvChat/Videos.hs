@@ -22,11 +22,10 @@ renderVideos conn = do
   let body = ul_ $
         for_ videos $ \Video {id, title} ->
           li_ $ do
-            let url = "https://www.twitch.tv/videos/" <> tshow id
             button_
               [ class_ "load",
                 data_ "post" "/loadfile",
-                data_ "body" url
+                data_ "body" $ tshow id
               ]
               "|>"
             " "

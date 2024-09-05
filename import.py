@@ -3,7 +3,6 @@
 import json
 import logging
 import re
-import socket
 import sqlite3
 import subprocess
 import sys
@@ -241,6 +240,15 @@ def load(conn: sqlite3.Connection, data: Any) -> None:
     )
 
 
+def download_video(id: int) -> None:
+    logger.info("downloading video")
+    subprocess.run(
+        ["yt-dlp", "--embed-metadata", URL_FMT.format(id=id)],
+        cwd="vod",
+        check=True,
+    )
+
+
 def download_chat(id: int, p: Path) -> None:
     logger.info("downloading chat")
     subprocess.run(
@@ -273,30 +281,21 @@ def import_chat(conn: sqlite3.Connection, p: Path) -> None:
     load(conn, data)
 
 
-def start_video(id: int, ipc_path: Path) -> None:
-    logger.info("starting video")
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-        s.connect(bytes(ipc_path))
-        url = URL_FMT.format(id=id)
-        msg = as_json({"command": ["loadfile", url, "append-play"]}) + "\n"
-        s.sendall(msg.encode())
-        s.shutdown(socket.SHUT_RDWR)
-
-
 def main() -> None:
     from argparse import ArgumentParser, BooleanOptionalAction
 
     p = ArgumentParser()
     p.add_argument("id", help="video id or url")
     p.add_argument(
-        "--ipc-path",
-        type=Path,
-        help="mpv ipc path, used to auto start video",
+        "--video",
+        action=BooleanOptionalAction,
+        default=False,
+        help="download video as well",
     )
     p.add_argument("-f", "--force", action=BooleanOptionalAction, default=False)
     args = p.parse_args()
     id_str: str = args.id
-    ipc_path: Path | None = args.ipc_path
+    video: bool = args.video
     force: bool = args.force
 
     logging.basicConfig(format="[%(levelname)s] %(message)s", level=logging.INFO)
@@ -311,6 +310,9 @@ def main() -> None:
         sys.exit(2)
 
     logger.info(f"video id {id}")
+
+    if video:
+        download_video(id)
 
     with closing(sqlite3.connect(ROOT / "twitch.db", isolation_level=None)) as conn:
         conn.execute("PRAGMA foreign_keys = ON")
@@ -346,9 +348,6 @@ def main() -> None:
         else:
             logger.info("committing")
             conn.execute("COMMIT")
-
-    if ipc_path and ipc_path.exists():
-        start_video(id, ipc_path)
 
 
 if __name__ == "__main__":
