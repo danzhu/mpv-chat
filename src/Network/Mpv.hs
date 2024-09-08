@@ -58,7 +58,7 @@ import Data.Conduit.Network.Unix
     clientSettings,
     runUnixClient,
   )
-import qualified Data.IdMap as IM
+import Data.IntMap.Strict (lookupMax)
 import Data.Time (NominalDiffTime)
 import GHC.OverloadedLabels (IsLabel (fromLabel))
 import GHC.TypeLits (KnownSymbol, Symbol, symbolVal)
@@ -76,14 +76,14 @@ type Command = [Value]
 
 data Request = ReqCommand
   { command :: Command,
-    request_id :: IM.Id,
+    request_id :: Int,
     async :: Bool
   }
   deriving stock (Show, Generic)
   deriving anyclass (ToJSON)
 
 data Event
-  = EvtPropChange IM.Id Text Value
+  = EvtPropChange Int Text Value
   | EvtOther EventName
   deriving stock (Show)
 
@@ -101,7 +101,7 @@ type Reply = Either Error Value
 
 data Response
   = ResEvent Event
-  | ResReply IM.Id Reply
+  | ResReply Int Reply
   deriving stock (Show)
 
 instance FromJSON Response where
@@ -131,8 +131,8 @@ data MpvProtocolError
 data Mpv = Mpv
   { requests :: TBQueue (Command, TMVar Reply),
     events :: TBQueue Event,
-    waits :: TVar (IM.IdMap (TMVar Reply)),
-    changes :: TVar (IM.IdMap (Value -> IO ())),
+    waits :: TVar (IntMap (TMVar Reply)),
+    changes :: TVar (IntMap (Value -> IO ())),
     handlers :: TVar (HashMap EventName (IO ())),
     closed :: TVar Bool
   }
@@ -143,26 +143,36 @@ expect e = maybe (throwM e) pure
 expectE :: (MonadThrow m, Exception e) => (b -> e) -> Either b a -> m a
 expectE e = either (throwM . e) pure
 
+insertNext :: a -> IntMap a -> (Int, IntMap a)
+insertNext v m = (k, insertMap k v m)
+  where
+    k = maybe 1 (succ . fst) $ lookupMax m
+
+remove :: Int -> IntMap a -> (Maybe a, IntMap a)
+remove = updateLookupWithKey del
+  where
+    del _ _ = Nothing
+
 newMpvClient :: (MonadIO m) => m Mpv
 newMpvClient =
   Mpv
     <$> newTBQueueIO 16
     <*> newTBQueueIO 16
-    <*> newTVarIO (IM.empty 1)
-    <*> newTVarIO (IM.empty 1)
+    <*> newTVarIO mempty
+    <*> newTVarIO mempty
     <*> newTVarIO mempty
     <*> newTVarIO False
 
 produce :: Mpv -> IO Request
 produce Mpv {requests, waits} = do
   (cmd, wait) <- atomically $ readTBQueue requests
-  rid <- atomically $ stateTVar waits $ IM.insert wait
+  rid <- atomically $ stateTVar waits $ insertNext wait
   pure $ ReqCommand {command = cmd, request_id = rid, async = True}
 
 consume :: Mpv -> Response -> IO ()
 consume Mpv {events} (ResEvent evt) = atomically $ writeTBQueue events evt
 consume Mpv {waits} (ResReply rid rep) = atomically $ do
-  v <- stateTVar waits $ IM.remove rid
+  v <- stateTVar waits $ remove rid
   w <- expect MpvNoReqId v
   putTMVar w rep
 
@@ -201,7 +211,7 @@ handle Mpv {events, changes, handlers} =
   forever $
     atomically (readTBQueue events) >>= \case
       EvtPropChange i _ v -> do
-        h <- IM.lookup i <$> readTVarIO changes
+        h <- lookup i <$> readTVarIO changes
         traverse_ ($ v) h
       EvtOther e -> do
         h <- lookup e <$> readTVarIO handlers
@@ -310,7 +320,7 @@ observeProperty ::
   (a -> m ()) ->
   m ()
 observeProperty mpv@Mpv {changes} p f = withRunInIO $ \run -> do
-  i <- atomically $ stateTVar changes $ IM.insert $ run . f <=< fromJson
+  i <- atomically $ stateTVar changes $ insertNext $ run . f <=< fromJson
   command mpv "observe_property" i p
 
 --
