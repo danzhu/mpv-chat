@@ -15,6 +15,7 @@ where
 
 import Data.Aeson (ToJSON)
 import Data.Time.Clock (NominalDiffTime, UTCTime)
+import Database.SQLite.Simple (FromRow (fromRow), field)
 import qualified Network.Twitch as Tv
 
 data View = View
@@ -36,6 +37,8 @@ data Badge = Badge
     description :: Text,
     bytes :: Text
   }
+  deriving stock (Generic)
+  deriving anyclass (FromRow)
 
 makeFieldLabelsNoPrefix ''Badge
 
@@ -58,6 +61,9 @@ data Video = Video
     context :: VideoContext
   }
 
+instance FromRow Video where
+  fromRow = Video <$> field <*> field <*> field <*> field <*> pure def
+
 makeFieldLabelsNoPrefix ''Video
 
 data User = User
@@ -66,6 +72,8 @@ data User = User
     name :: Text,
     bio :: Maybe Text
   }
+  deriving stock (Generic)
+  deriving anyclass (FromRow)
 
 makeFieldLabelsNoPrefix ''User
 

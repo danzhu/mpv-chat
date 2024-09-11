@@ -12,6 +12,7 @@ where
 
 import Data.Aeson (FromJSON)
 import Data.Int (Int64)
+import Database.SQLite.Simple (FromRow)
 import Database.SQLite.Simple.FromField (FromField)
 import Database.SQLite.Simple.ToField (ToField)
 
@@ -46,6 +47,6 @@ data Badge = Badge
     version :: Text
   }
   deriving stock (Eq, Ord, Generic, Show)
-  deriving anyclass (FromJSON, Hashable)
+  deriving anyclass (Hashable, FromJSON, FromRow)
 
 makeFieldLabelsNoPrefix ''Badge

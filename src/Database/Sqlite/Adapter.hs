@@ -12,6 +12,7 @@ import Database.SQLite.Simple
 import Database.SQLite.Simple.FromField (FromField (fromField), returnError)
 import Database.SQLite.Simple.ToField (ToField (toField))
 
+-- | Newtype wrapper to serialize/deserialize field with json.
 newtype JSONField a = JSONField a
 
 instance (FromJSON a, Typeable a) => FromField (JSONField a) where

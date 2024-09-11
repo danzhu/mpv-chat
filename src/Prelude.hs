@@ -296,7 +296,19 @@ import GHC.Num as E
   )
 import GHC.Real as E (RealFrac (ceiling, floor, round, truncate))
 import GHC.Stack as E (HasCallStack)
+import Optics.At.Core as E (at, at', contains, ix)
+import Optics.Cons.Core as E
+  ( _Cons,
+    _Snoc,
+    _head,
+    _init,
+    _last,
+    _tail,
+    pattern (:<),
+    pattern (:>),
+  )
 import Optics.Each.Core as E (each)
+import Optics.Empty.Core as E (_Empty, pattern Empty)
 import Optics.Fold as E
   ( allOf,
     andOf,

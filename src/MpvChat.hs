@@ -181,10 +181,11 @@ runMpvChat Config {ipcPath, port} = evalContT $ do
           _ -> appStatic err "public"
       update f = modifyTVar' chatState $ (#version %!~ succ) . f
       load vid = startTask taskLoad $ do
-        v <- for vid $ loadVideo conn
+        -- TODO: inform user for non-twitch videos,
+        -- and twitch videos not yet imported
+        v <- join <$> for vid (loadVideo conn)
         atomically $ update $ (#video !~ v) . (#playbackTime !~ Nothing)
       setup = do
-        -- TODO: show different message for non-twitch urls
         observeProperty mpv #filename $ load . (parseVideoId =<<)
         observeProperty mpv #pause $ atomically . writeTVar active . not
         observeProperty mpv #"sub-delay" $ atomically . update . (#delay !~)

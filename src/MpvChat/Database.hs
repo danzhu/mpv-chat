@@ -18,14 +18,14 @@ import Database.SQLite.Simple
   ( Connection,
     Only (Only, fromOnly),
     query,
+    query_,
+    (:.) ((:.)),
   )
 import Database.Sqlite.Adapter (JSONField (JSONField))
 import MpvChat.Data
-  ( Badge (Badge),
-    Comment (Comment),
+  ( Comment (Comment),
     Highlight (Highlight, NameOnly, NoHighlight),
-    User (User),
-    Video (Video),
+    Video (context),
     VideoContext (VideoContext),
   )
 import qualified MpvChat.Data
@@ -35,16 +35,14 @@ import Optics.Iso (Iso, iso)
 _Only :: Iso (Only a) (Only b) a b
 _Only = iso fromOnly Only
 
-loadVideo :: Connection -> Tv.VideoId -> IO Video
-loadVideo conn vid = do
-  [(title, createdAt, channelId)] <-
-    query
-      conn
-      "SELECT title, created_at, channel_id FROM video WHERE id = ?"
-      (Only vid)
+loadVideoContext :: Connection -> Tv.VideoId -> IO VideoContext
+loadVideoContext conn vid = do
   emotes <-
     mapFromList
-      <$> query conn "SELECT name, data FROM emote_third_party WHERE video_id = ?" (Only vid)
+      <$> query
+        conn
+        "SELECT name, data FROM emote_third_party WHERE video_id = ?"
+        (Only vid)
   badges <-
     mapFromList . map mkBadge
       <$> query
@@ -53,27 +51,32 @@ loadVideo conn vid = do
         \FROM twitch_badge \
         \WHERE video_id = ?"
         (Only vid)
-  let context = VideoContext {emotes, badges}
-  pure $ Video {id = vid, title, createdAt, channelId, context}
+  pure $ VideoContext {emotes, badges}
   where
-    mkBadge (name, version, title, description, bytes) =
-      (Tv.Badge name version, Badge {title, description, bytes})
+    mkBadge (k :. v) = (k, v)
+
+loadVideo :: Connection -> Tv.VideoId -> IO (Maybe Video)
+loadVideo conn vid = do
+  res <-
+    query
+      conn
+      "SELECT id, title, created_at, channel_id FROM video WHERE id = ?"
+      (Only vid)
+  for (headMay res) \video -> do
+    context <- loadVideoContext conn vid
+    pure $ video {context}
 
 -- TODO: make a separate Video type for listing
 loadVideos :: Connection -> IO [Video]
 loadVideos conn =
-  map mkVideo
-    <$> query
-      conn
-      "SELECT id, title, created_at, channel_id FROM video ORDER BY created_at DESC"
-      ()
-  where
-    mkVideo (id, title, createdAt, channelId) =
-      Video {id, title, createdAt, channelId, context = def}
+  query_
+    conn
+    "SELECT id, title, created_at, channel_id FROM video \
+    \ORDER BY created_at DESC"
 
 loadEmote :: Connection -> Text -> IO (Maybe ByteString)
 loadEmote conn id =
-  headOf (each % _Only)
+  (^? _head % _Only)
     <$> query
       conn
       "SELECT f.data FROM emote e \
@@ -82,11 +85,13 @@ loadEmote conn id =
       (Only id)
 
 loadFile :: Connection -> Text -> IO (Maybe ByteString)
-loadFile conn id = headOf (each % _Only) <$> query conn "SELECT data FROM file WHERE id = ?" (Only id)
+loadFile conn id =
+  (^? _head % _Only)
+    <$> query conn "SELECT data FROM file WHERE id = ?" (Only id)
 
 loadChapter :: Connection -> Tv.VideoId -> NominalDiffTime -> IO (Maybe Text)
 loadChapter conn vid subTime =
-  headOf (each % _Only)
+  (^? _head % _Only)
     <$> query
       conn
       "SELECT description FROM chapter \
@@ -103,8 +108,8 @@ loadComments conn vid time uid =
       conn
       "SELECT \
       \    c.created_at, c.fragments, c.user_badges, c.user_color, \
-      \    u.id, u.display_name, u.name, u.bio, \
-      \    f.highlight \
+      \    f.highlight, \
+      \    u.id, u.display_name, u.name, u.bio \
       \FROM comment c \
       \JOIN user u ON u.id = c.commenter \
       \LEFT JOIN follow f ON f.id = u.id \
@@ -115,19 +120,17 @@ loadComments conn vid time uid =
       (vid, time, uid)
   where
     mkComment
-      ( createdAt,
-        JSONField fragments,
-        JSONField userBadges,
-        userColor,
-        commenterId,
-        displayName,
-        name,
-        bio,
-        highlight
+      ( ( createdAt,
+          JSONField fragments,
+          JSONField userBadges,
+          userColor,
+          highlight
+          )
+          :. commenter
         ) = do
         Comment
           { createdAt,
-            commenter = User {id = commenterId, displayName, name, bio},
+            commenter,
             fragments,
             userBadges,
             userColor,
