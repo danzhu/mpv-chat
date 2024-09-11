@@ -76,7 +76,7 @@ library:
     - data-default-class
     - http-media
     - http-types
-    - lucid
+    - lucid2
     - mime-types
     - mono-traversable
     - optics-core
