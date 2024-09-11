@@ -24,8 +24,8 @@ import qualified MpvChat.Data
 import MpvChat.Database (loadEmote, loadFile, loadVideo)
 import MpvChat.Videos (renderVideos)
 import Network.HTTP.Types.Status
-  ( Status,
-    badRequest400,
+  ( badRequest400,
+    noContent204,
     notFound404,
     ok200,
   )
@@ -53,24 +53,26 @@ import Network.Wai.Handler.Warp
     setPort,
   )
 import Network.Wai.Monad
-  ( WaiApp,
+  ( ErrorResponse (ErrorResponse),
+    WaiApp,
     appFile,
     appStatic,
     data_,
     requestBS,
     responseEvents,
-    responsePlainStatus,
     responseRedirect,
     routeAccept,
     routeGet,
     routePost,
     runWai,
+    throwWai,
   )
 import System.FilePath (takeDirectory, (</>))
 import Text.Regex.TDFA ((=~~))
 import UnliftIO.Concurrent (threadDelay)
 import UnliftIO.Directory (listDirectory, makeAbsolute)
 import UnliftIO.Environment (getExecutablePath)
+import Network.HTTP.Types.Header (hContentType)
 
 data Config = Config
   { ipcPath :: FilePath,
@@ -78,15 +80,11 @@ data Config = Config
   }
   deriving stock (Show)
 
-err :: Status -> WaiApp
-err stat = pure $ responsePlainStatus stat []
-
 page :: ConduitT () View IO () -> WaiApp
 page vs =
-  routeGet err $
+  routeGet $
     routeAccept
-      err
-      [ ("text/html", appFile err "res/page.html"),
+      [ ("text/html", appFile "res/page.html"),
         ("text/event-stream", pure $ responseEvents $ vs .| C.map enc)
       ]
   where
@@ -151,34 +149,34 @@ runMpvChat Config {ipcPath, port} = evalContT $ do
           [] -> page $ messages Nothing
           ["user", treadMaybe -> Just uid] -> page $ messages (Just uid)
           ["emote", id] ->
-            routeGet err do
+            routeGet do
               liftIO (loadEmote conn id) >>= \case
                 Just bs -> pure $ responseBuilder ok200 [] $ byteString bs
-                Nothing -> err notFound404
+                Nothing -> throwWai notFound404 ""
           ["file", name] ->
-            routeGet err do
+            routeGet do
               liftIO (loadFile conn name) >>= \case
                 Just bs -> pure $ responseBuilder ok200 [] $ byteString bs
-                Nothing -> err notFound404
+                Nothing -> throwWai notFound404 ""
           -- videos
           ["videos"] -> page $ do
             videos <- liftIO $ renderVideos conn
             yield videos
             forever $ threadDelay maxBound
           -- actions
-          ["loadfile"] -> routePost err $ do
+          ["loadfile"] -> routePost $ do
             body <- join $ asks requestBS
             case treadMaybe $ decodeUtf8 body of
-              Nothing -> err badRequest400
+              Nothing -> throwWai badRequest400 "invalid request body"
               Just id -> do
                 path <- videoPath id
                 void $ liftIO $ loadfile mpv path
-                pure $ responsePlainStatus ok200 []
+                pure $ responseBuilder noContent204 [] ""
           -- docs
           ["doc"] -> pure $ responseRedirect "/doc/all/index.html"
-          "doc" : _ -> appStatic err installPath
+          "doc" : _ -> appStatic installPath
           -- static
-          _ -> appStatic err "public"
+          _ -> appStatic "public"
       update f = modifyTVar' chatState $ (#version %!~ succ) . f
       load vid = startTask taskLoad $ do
         -- TODO: inform user for non-twitch videos,
@@ -191,7 +189,14 @@ runMpvChat Config {ipcPath, port} = evalContT $ do
         observeProperty mpv #"sub-delay" $ atomically . update . (#delay !~)
         observeEvent_ mpv #seek $ atomically $ writeTVar seek True
 
-  contT_ $ withTask_ $ runSettings settings $ runWai app
+  contT_ $ withTask_ $ runSettings settings $ \req resp -> do
+    try (runWai app req resp) >>= \case
+      Right r -> pure r
+      Left (ErrorResponse s m) -> do
+        let hs = [(hContentType, "text/plain; charset=utf-8")]
+            b = byteString (encodeUtf8 m)
+        resp $ responseBuilder s hs b
+
   contT_ $
     withTask_ $
       forever $ do
