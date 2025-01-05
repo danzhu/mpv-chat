@@ -85,14 +85,15 @@ import Control.Monad.Trans.Cont as E
 import Control.Monad.Trans.Except as E (ExceptT (ExceptT), runExceptT)
 import Control.Monad.Trans.Identity as E (IdentityT (IdentityT, runIdentityT))
 import Control.Monad.Trans.Maybe as E (MaybeT (MaybeT, runMaybeT))
-import Control.Monad.Trans.RWS as E
+import Control.Monad.Trans.RWS.CPS as E
   ( RWS,
-    RWST (RWST, runRWST),
+    RWST,
     evalRWS,
     evalRWST,
     execRWS,
     execRWST,
     runRWS,
+    runRWST,
   )
 import Control.Monad.Trans.Reader as E
   ( Reader,
@@ -108,12 +109,13 @@ import Control.Monad.Trans.State.Strict as E
     execStateT,
     runState,
   )
-import Control.Monad.Trans.Writer.Strict as E
+import Control.Monad.Trans.Writer.CPS as E
   ( Writer,
-    WriterT (WriterT, runWriterT),
+    WriterT,
     execWriter,
     execWriterT,
     runWriter,
+    runWriterT,
   )
 import Data.Bifunctor as E (Bifunctor (bimap))
 import Data.Bool as E (Bool (False, True), bool, not, otherwise, (&&), (||))
@@ -280,6 +282,7 @@ import qualified Data.Text.Lazy as L
 import Data.Traversable (Traversable (sequenceA))
 import Data.Traversable as E (Traversable (traverse), for)
 import Data.Tuple as E (curry, fst, snd, swap, uncurry)
+import Data.Tuple.Optics as E (_1, _2, _3, _4, _5, _6, _7, _8, _9)
 import Data.Void as E (Void, absurd)
 import GHC.Enum as E
   ( Bounded (maxBound, minBound),
