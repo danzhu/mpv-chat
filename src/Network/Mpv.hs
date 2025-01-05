@@ -48,7 +48,7 @@ import Data.Aeson
     (.:?),
   )
 import Data.Aeson.Types (parseEither)
-import qualified Data.ByteString.Char8 as BC
+-- import qualified Data.ByteString.Char8 as BC
 import Data.Conduit (runConduit, (.|))
 import qualified Data.Conduit.Combinators as C
 import Data.Conduit.Network.Unix
@@ -180,12 +180,12 @@ encodeReq :: Request -> IO ByteString
 encodeReq req = do
   let line = toStrict $ encode req
   -- TODO: find a logging solution and redirect log somewhere else
-  BC.putStrLn $ "> " <> line
+  -- BC.putStrLn $ "> " <> line
   pure line
 
 decodeRes :: ByteString -> IO Response
 decodeRes line = do
-  BC.putStrLn $ "  " <> line
+  -- BC.putStrLn $ "  " <> line
   expectE (MpvJsonError line) $ eitherDecodeStrict' line
 
 send :: Mpv -> AppDataUnix -> IO ()
