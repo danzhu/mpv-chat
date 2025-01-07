@@ -5,6 +5,7 @@ module MpvChat.Database
     loadEmote,
     loadFile,
     loadComments,
+    loadUser,
   )
 where
 
@@ -25,6 +26,7 @@ import Database.Sqlite.Adapter (JSONField (JSONField))
 import MpvChat.Data
   ( Comment (Comment),
     Highlight (Highlight, NameOnly, NoHighlight),
+    User,
     Video (context),
     VideoContext (VideoContext),
   )
@@ -101,8 +103,8 @@ loadChapter conn vid subTime =
       \LIMIT 1"
       (vid, nominalDiffTimeToSeconds subTime `div'` 0.001 :: Int)
 
-loadComments :: Connection -> Tv.VideoId -> UTCTime -> Maybe Tv.UserId -> IO [Comment]
-loadComments conn vid time uid =
+loadComments :: Connection -> Tv.VideoId -> UTCTime -> Maybe Tv.UserId -> Int -> IO [Comment]
+loadComments conn vid time uid limit =
   map mkComment
     <$> query
       conn
@@ -116,8 +118,8 @@ loadComments conn vid time uid =
       \WHERE c.content_id = ? AND c.created_at < ? \
       \    AND ifnull(c.commenter = ?, true) \
       \ORDER BY c.created_at DESC \
-      \LIMIT 500"
-      (vid, time, uid)
+      \LIMIT ?"
+      (vid, time, uid, limit)
   where
     mkComment
       ( ( createdAt,
@@ -143,3 +145,13 @@ loadComments conn vid time uid =
                     elemOf (each % #_id) "partner" userBadges
                 ]
           }
+
+loadUser :: Connection -> Text -> IO (Maybe User)
+loadUser conn name =
+  headMay
+    <$> query
+      conn
+      "SELECT id, display_name, name, bio FROM user \
+      \WHERE name = ? OR display_name = ? \
+      \LIMIT 1"
+      (name, name)

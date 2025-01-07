@@ -46,6 +46,12 @@ CREATE TABLE IF NOT EXISTS user(
     logo TEXT NOT NULL
 ) STRICT;
 
+CREATE INDEX IF NOT EXISTS user_display_name_index
+    ON user(display_name);
+
+CREATE INDEX IF NOT EXISTS user_name_index
+    ON user(name);
+
 CREATE TABLE IF NOT EXISTS comment(
     id TEXT NOT NULL PRIMARY KEY,
     created_at TEXT NOT NULL,

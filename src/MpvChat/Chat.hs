@@ -1,3 +1,5 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 module MpvChat.Chat
   ( renderChat,
   )
@@ -8,6 +10,7 @@ import Data.Time.Format (defaultTimeLocale, formatTime)
 import Database.SQLite.Simple (Connection)
 import Lucid.Base
   ( HtmlT,
+    hoistHtmlT,
     renderTextT,
     toHtml,
   )
@@ -33,11 +36,10 @@ import MpvChat.Data
     Highlight (Highlight, NoHighlight),
     User (User),
     Video (Video),
-    VideoContext (VideoContext),
     View (View),
   )
 import qualified MpvChat.Data
-import MpvChat.Database (loadChapter, loadComments)
+import MpvChat.Database (loadChapter, loadComments, loadUser)
 import qualified Network.Twitch as Tv
 import Network.URI
   ( parseURI,
@@ -45,12 +47,23 @@ import Network.URI
   )
 import Optics.AffineFold (afolding)
 
-type Fmt = HtmlT (RWS VideoContext () (HashMap Text Comment))
+data Context = Context
+  { conn :: Connection,
+    video :: Video,
+    comment :: Comment
+  }
+
+makeFieldLabelsNoPrefix ''Context
+
+type Fmt = HtmlT (ReaderT Context IO)
+
+commentLimit :: Int
+commentLimit = 500
 
 fmtComment :: Comment -> Fmt ()
 fmtComment
   c@Comment
-    { commenter = User {id = uid, displayName, name, bio},
+    { commenter = User {id = uid, bio},
       fragments,
       userColor,
       highlight
@@ -73,7 +86,6 @@ fmtComment
             fmtUser c
             ": "
           traverse_ fmtFragment fragments
-    modify' $ insertMap displayName c . insertMap name c
 
 fmtUser :: Comment -> Fmt ()
 fmtUser
@@ -87,7 +99,7 @@ fmtUser
         style_ $ maybe "" ("color: " <>) userColor
       ]
       do
-        VideoContext {badges} <- ask
+        badges <- asks (^. #video % #context % #badges)
         forOf_
           (each % afolding (`lookup` badges))
           userBadges
@@ -113,18 +125,24 @@ fmtFragment Tv.Fragment {text, emoticon}
 
 fmtWord :: Text -> Fmt ()
 fmtWord word = do
-  VideoContext {emotes} <- ask
+  emotes <- asks (^. #video % #context % #emotes)
   if
     | Just id <- lookup word emotes ->
         fmtEmote EmoteThirdParty word $ "/file/" <> id
-    | Just ('@', name) <- uncons word ->
-        -- FIXME: mention doesn't work on user page,
-        -- since the filtering happens in db
+    | Just ('@', name) <- uncons word -> do
+        Context
+          { conn,
+            video = Video {id = vid},
+            comment = Comment {createdAt}
+          } <-
+          ask
+        user <- liftIO $ loadUser conn name
+        mention <-
+          join <$> for user \User {id = uid} ->
+            liftIO $ headMay <$> loadComments conn vid createdAt (Just uid) 1
         span_ [class_ "mention"] do
           "@"
-          -- TODO: create color index at video start,
-          -- so that it works across long distances?
-          gets (lookup name) >>= \case
+          case mention of
             Nothing -> toHtml name
             Just Comment {userColor, commenter = User {id = uid}} ->
               a_
@@ -159,34 +177,30 @@ renderChat ::
   IO View
 renderChat
   conn
-  Video {id = vid, title, createdAt = startTime, context}
+  video@Video {id = vid, title, createdAt = startTime}
   playbackTime
   delay
   uid = do
     let subTime = playbackTime - delay
         currentTime = addUTCTime subTime startTime
     chapter <- loadChapter conn vid subTime
-    comments <- loadComments conn vid currentTime uid
-    let body = do
-          div_ [class_ "header"] do
-            for_ chapter $ div_ [class_ "chapter"] . toHtml
-            pre_ [class_ "timestamp"] $ do
-              toHtml $ formatTime defaultTimeLocale "%F %T" currentTime
-              " ["
-              toHtml $ formatTime defaultTimeLocale "%h:%2M:%2S" subTime
-              when (delay /= 0) do
-                " "
-                when (delay > 0) "+"
-                toHtml $ formatTime defaultTimeLocale "%1Es" delay
-                "s"
-              "]"
-          ul_ [class_ "comments"] $
-            -- TODO; render timestamp if far apart enough
-            traverse_ fmtComment $
-              reverse comments
-    pure $
-      View
-        { title,
-          content = fst $ evalRWS (renderTextT body) context mempty,
-          scroll = True
-        }
+    comments <- loadComments conn vid currentTime uid commentLimit
+    content <- renderTextT do
+      div_ [class_ "header"] do
+        for_ chapter $ div_ [class_ "chapter"] . toHtml
+        pre_ [class_ "timestamp"] $ do
+          toHtml $ formatTime defaultTimeLocale "%F %T" currentTime
+          " ["
+          toHtml $ formatTime defaultTimeLocale "%h:%2M:%2S" subTime
+          when (delay /= 0) do
+            " "
+            when (delay > 0) "+"
+            toHtml $ formatTime defaultTimeLocale "%1Es" delay
+            "s"
+          "]"
+      ul_ [class_ "comments"] $
+        -- TODO; render timestamp if far apart enough
+        for_ comments \comment -> do
+          let context = Context {conn, video, comment}
+          hoistHtmlT (`runReaderT` context) $ fmtComment comment
+    pure $ View {title, content, scroll = False}

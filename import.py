@@ -342,6 +342,9 @@ def main() -> None:
                 if force:
                     remove_chat(conn, id)
                 import_chat(conn, path)
+
+            logger.info("optimizing database")
+            conn.execute("PRAGMA optimize")
         except Exception:
             conn.execute("ROLLBACK")
             raise
