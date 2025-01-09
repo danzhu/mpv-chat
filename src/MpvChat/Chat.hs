@@ -10,7 +10,7 @@ import Data.Time.Format (defaultTimeLocale, formatTime)
 import Database.SQLite.Simple (Connection)
 import Lucid.Base
   ( HtmlT,
-    hoistHtmlT,
+    commuteHtmlT2,
     renderTextT,
     toHtml,
   )
@@ -55,37 +55,46 @@ data Context = Context
 
 makeFieldLabelsNoPrefix ''Context
 
-type Fmt = HtmlT (ReaderT Context IO)
+type Fmt = HtmlT (RWST Context [Comment] () IO)
+
+runFmt :: (MonadIO m, Monad n) => Fmt a -> Context -> m (HtmlT n a, [Comment])
+runFmt fmt context = liftIO $ evalRWST (commuteHtmlT2 fmt) context ()
 
 commentLimit :: Int
 commentLimit = 500
 
 fmtComment :: Comment -> Fmt ()
-fmtComment
-  c@Comment
-    { commenter = User {id = uid, bio},
-      fragments,
-      userColor,
-      highlight
-    } = do
-    li_
-      [ class_ $ bool "comment" "comment highlight" $ highlight == Highlight
+fmtComment c =
+  div_ [class_ "comment"] do
+    a_
+      [ class_ "icon",
+        style_ $ maybe "" ("background-color: " <>) userColor,
+        href_ $ "/user/" <> tshow uid
       ]
-      $ do
-        a_
-          [ class_ "icon",
-            style_ $ maybe "" ("background-color: " <>) userColor,
-            href_ $ "/user/" <> tshow uid
-          ]
-          $ div_ [class_ "details"]
-          $ do
-            div_ [class_ "display-name"] $ fmtUser c
-            for_ bio $ \b -> div_ [class_ "bio"] $ toHtml b
-        div_ [class_ "message"] do
-          unless (highlight == NoHighlight) do
-            fmtUser c
-            ": "
-          traverse_ fmtFragment fragments
+      do
+        div_ [class_ "details"] do
+          div_ [class_ "display-name"] $ fmtUser c
+          for_ bio $ div_ [class_ "bio"] . toHtml
+    div_ [class_ "message"] do
+      unless (highlight == NoHighlight) do
+        fmtUser c
+        ": "
+      traverse_ fmtFragment fragments
+  where
+    Comment
+      { commenter = User {id = uid, bio},
+        fragments,
+        userColor,
+        highlight
+      } = c
+
+fmtMentionPreview :: Comment -> Fmt ()
+fmtMentionPreview c@Comment {fragments} =
+  div_ [class_ "mention-preview"] do
+    div_ [class_ "message"] do
+      fmtUser c
+      ": "
+      traverse_ fmtFragment fragments
 
 fmtUser :: Comment -> Fmt ()
 fmtUser
@@ -144,7 +153,8 @@ fmtWord word = do
           "@"
           case mention of
             Nothing -> toHtml name
-            Just Comment {userColor, commenter = User {id = uid}} ->
+            Just c@Comment {userColor, commenter = User {id = uid}} -> do
+              lift $ tell [c]
               a_
                 [ class_ "name",
                   style_ $ maybe "" ("color: " <>) userColor,
@@ -200,7 +210,12 @@ renderChat
           "]"
       ul_ [class_ "comments"] $
         -- TODO; render timestamp if far apart enough
-        for_ comments \comment -> do
-          let context = Context {conn, video, comment}
-          hoistHtmlT (`runReaderT` context) $ fmtComment comment
+        for_ comments \comment@Comment {highlight} ->
+          li_ [class_ $ bool "" "highlight" $ highlight == Highlight] do
+            let context = Context {conn, video, comment}
+            (html, mentions) <- runFmt (fmtComment comment) context
+            html
+            for_ mentions \mention -> do
+              let context' = Context {conn, video, comment = mention}
+              fst =<< runFmt (fmtMentionPreview mention) context'
     pure $ View {title, content, scroll = False}

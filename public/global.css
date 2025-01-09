@@ -65,9 +65,16 @@ body {
     list-style: none;
 }
 
+.comments > * {
+    padding: 0.2em 8px;
+}
+
 .comment {
     display: flex;
-    padding: 0.2em 8px;
+}
+
+.mention-preview {
+    font-size: 0.8em;
 }
 
 .highlight {
