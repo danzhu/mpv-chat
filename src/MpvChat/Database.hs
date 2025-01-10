@@ -1,5 +1,6 @@
 module MpvChat.Database
-  ( loadVideo,
+  ( sqliteVersion,
+    loadVideo,
     loadVideos,
     loadChapter,
     loadEmote,
@@ -36,6 +37,11 @@ import Optics.Iso (Iso, iso)
 
 _Only :: Iso (Only a) (Only b) a b
 _Only = iso fromOnly Only
+
+sqliteVersion :: Connection -> IO Text
+sqliteVersion conn = do
+  [Only v] <- query_ conn "SELECT sqlite_version()"
+  pure v
 
 loadVideoContext :: Connection -> Tv.VideoId -> IO VideoContext
 loadVideoContext conn vid = do

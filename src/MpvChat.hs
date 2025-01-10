@@ -22,7 +22,7 @@ import Database.SQLite.Simple (withConnection)
 import MpvChat.Chat (renderChat)
 import MpvChat.Data (ChatState (ChatState), View)
 import qualified MpvChat.Data
-import MpvChat.Database (loadEmote, loadFile, loadVideo)
+import MpvChat.Database (loadEmote, loadFile, loadVideo, sqliteVersion)
 import MpvChat.Videos (renderVideos)
 import Network.HTTP.Types (Status (statusCode, statusMessage), StdMethod (GET, POST))
 import Network.HTTP.Types.Status
@@ -103,6 +103,9 @@ videoPath vid = do
 runMpvChat :: Config -> IO ()
 runMpvChat Config {ipcPath, port} = evalContT $ do
   conn <- ContT $ withConnection "twitch.db"
+  dbVersion <- liftIO $ sqliteVersion conn
+  liftIO $ putStrLn $ "using sqlite version " <> dbVersion
+
   mpv <- ContT $ withMpv ipcPath
   ipcName <- liftIO $ clientName mpv
   liftIO $ putStrLn $ "connected to mpv with name " <> ipcName

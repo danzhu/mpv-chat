@@ -2,3 +2,7 @@ resolver: lts-22.43
 
 packages:
   - .
+
+flags:
+  direct-sqlite:
+    systemlib: true
