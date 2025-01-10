@@ -13,7 +13,7 @@ from hashlib import sha3_256
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger("__name__")
+logger = logging.getLogger(__name__)
 
 ROOT = Path(sys.path[0])
 SCHEMA = ROOT / "schema.sql"
