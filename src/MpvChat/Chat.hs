@@ -63,6 +63,9 @@ runFmt fmt context = liftIO $ evalRWST (commuteHtmlT2 fmt) context ()
 commentLimit :: Int
 commentLimit = 500
 
+maxMentionAge :: NominalDiffTime
+maxMentionAge = 60
+
 fmtComment :: Comment -> Fmt ()
 fmtComment c =
   div_ [class_ "comment"] do
@@ -210,12 +213,14 @@ renderChat
           "]"
       ul_ [class_ "comments"] $
         -- TODO; render timestamp if far apart enough
-        for_ comments \comment@Comment {highlight} ->
+        for_ comments \comment@Comment {createdAt, highlight} ->
           li_ [class_ $ bool "" "highlight" $ highlight == Highlight] do
             let context = Context {conn, video, comment}
             (html, mentions) <- runFmt (fmtComment comment) context
             html
-            for_ mentions \mention -> do
+            let cutoff = addUTCTime (-maxMentionAge) createdAt
+                recent c = c ^. #createdAt >= cutoff
+            for_ (filter recent mentions) \mention -> do
               let context' = Context {conn, video, comment = mention}
               fst =<< runFmt (fmtMentionPreview mention) context'
     pure $ View {title, content, scroll = False}
