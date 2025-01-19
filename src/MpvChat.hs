@@ -199,27 +199,26 @@ runMpvChat Config {ipcPath, port} = evalContT $ do
                 <> encodeUtf8Builder msg
         pure $ WithStatus s body
 
-  contT_ $
-    withTask_ $
-      forever $ do
-        timeout <- registerDelay 1_000_000
-        atomically $ do
-          st <- readTVar chatState
-          -- if no video, there's no playback time, so block
-          guard $ isJust $ st ^. #video
-          readTVar seek >>= \case
-            -- if seeking, immediately continue for low latency
-            True -> writeTVar seek False
-            False -> do
-              -- otherwise, wait for timeout first
-              guard =<< readTVar timeout
-              -- if we have playback time already,
-              -- only continue when not paused
-              when (isJust $ st ^. #playbackTime) $
-                guard =<< readTVar active
-        let unavail (MpvIpcError "property unavailable") = Just ()
-            unavail _ = Nothing
-        time <- tryJust unavail $ getProperty mpv #"playback-time"
-        atomically $ update $ #playbackTime !~ (time ^? _Right)
+  contT_ $ withTask_ $ forever do
+    timeout <- registerDelay 1_000_000
+    atomically $ do
+      st <- readTVar chatState
+      -- if no video, there's no playback time, so block
+      guard $ isJust $ st ^. #video
+      readTVar seek >>= \case
+        -- if seeking, immediately continue for low latency
+        True -> writeTVar seek False
+        False -> do
+          -- otherwise, wait for timeout first
+          guard =<< readTVar timeout
+          -- if we have playback time already,
+          -- only continue when not paused
+          when (isJust $ st ^. #playbackTime) $
+            guard =<< readTVar active
+    let unavail (MpvIpcError "property unavailable") = Just ()
+        unavail _ = Nothing
+    time <- tryJust unavail $ getProperty mpv #"playback-time"
+    atomically $ update $ #playbackTime !~ (time ^? _Right)
+
   liftIO setup
   waitMpv mpv
