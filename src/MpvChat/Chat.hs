@@ -64,10 +64,16 @@ commentLimit :: Int
 commentLimit = 500
 
 maxMentionAge :: NominalDiffTime
-maxMentionAge = 60
+maxMentionAge = 180
 
-fmtComment :: Comment -> Fmt ()
-fmtComment c =
+fmtComment :: Fmt ()
+fmtComment = do
+  Comment
+    { commenter = User {id = uid, bio},
+      userColor,
+      highlight
+    } <-
+    asks (^. #comment)
   div_ [class_ "comment"] do
     a_
       [ class_ "icon",
@@ -76,58 +82,52 @@ fmtComment c =
       ]
       do
         div_ [class_ "details"] do
-          div_ [class_ "display-name"] $ fmtUser c
+          div_ [class_ "display-name"] fmtUser
           for_ bio $ div_ [class_ "bio"] . toHtml
-    div_ [class_ "message"] do
-      unless (highlight == NoHighlight) do
-        fmtUser c
-        ": "
-      traverse_ fmtFragment fragments
-  where
-    Comment
-      { commenter = User {id = uid, bio},
-        fragments,
-        userColor,
-        highlight
-      } = c
+    fmtMessage (highlight /= NoHighlight)
 
-fmtMentionPreview :: Comment -> Fmt ()
-fmtMentionPreview c@Comment {fragments} =
-  div_ [class_ "mention-preview"] do
-    div_ [class_ "message"] do
-      fmtUser c
+fmtMentionPreview :: Bool -> Fmt ()
+fmtMentionPreview showName =
+  div_ [class_ "mention-preview"] $ fmtMessage showName
+
+fmtMessage :: Bool -> Fmt ()
+fmtMessage showName =
+  div_ [class_ "message"] do
+    when showName do
+      fmtUser
       ": "
-      traverse_ fmtFragment fragments
+    traverse_ fmtFragment =<< asks (^. #comment % #fragments)
 
-fmtUser :: Comment -> Fmt ()
-fmtUser
+fmtUser :: Fmt ()
+fmtUser = do
   Comment
     { commenter = User {displayName, name},
       userBadges,
       userColor
-    } =
-    span_
-      [ class_ "name",
-        style_ $ maybe "" ("color: " <>) userColor
-      ]
-      do
-        badges <- asks (^. #video % #context % #badges)
-        forOf_
-          (each % afolding (`lookup` badges))
-          userBadges
-          \Badge {title, bytes} -> do
-            img_
-              [ class_ "badge",
-                src_ $ "/file/" <> bytes,
-                title_ title,
-                alt_ title
-              ]
-            " "
-        toHtml displayName
-        when (name /= toLower displayName) do
-          " ["
-          toHtml name
-          "]"
+    } <-
+    asks (^. #comment)
+  span_
+    [ class_ "name",
+      style_ $ maybe "" ("color: " <>) userColor
+    ]
+    do
+      badges <- asks (^. #video % #context % #badges)
+      forOf_
+        (each % afolding (`lookup` badges))
+        userBadges
+        \Badge {title, bytes} -> do
+          img_
+            [ class_ "badge",
+              src_ $ "/file/" <> bytes,
+              title_ title,
+              alt_ title
+            ]
+          " "
+      toHtml displayName
+      when (name /= toLower displayName) do
+        " ["
+        toHtml name
+        "]"
 
 fmtFragment :: Tv.Fragment -> Fmt ()
 fmtFragment Tv.Fragment {text, emoticon}
@@ -188,39 +188,36 @@ renderChat ::
   NominalDiffTime ->
   Maybe Tv.UserId ->
   IO View
-renderChat
-  conn
-  video@Video {id = vid, title, createdAt = startTime}
-  playbackTime
-  delay
-  uid = do
-    let subTime = playbackTime - delay
-        currentTime = addUTCTime subTime startTime
-    chapter <- loadChapter conn vid subTime
-    comments <- loadComments conn vid currentTime uid commentLimit
-    content <- renderTextT do
-      div_ [class_ "header"] do
-        for_ chapter $ div_ [class_ "chapter"] . toHtml
-        pre_ [class_ "timestamp"] $ do
-          toHtml $ formatTime defaultTimeLocale "%F %T" currentTime
-          " ["
-          toHtml $ formatTime defaultTimeLocale "%h:%2M:%2S" subTime
-          when (delay /= 0) do
-            " "
-            when (delay > 0) "+"
-            toHtml $ formatTime defaultTimeLocale "%1Es" delay
-            "s"
-          "]"
-      ul_ [class_ "comments"] $
-        -- TODO; render timestamp if far apart enough
-        for_ comments \comment@Comment {createdAt, highlight} ->
-          li_ [class_ $ bool "" "highlight" $ highlight == Highlight] do
-            let context = Context {conn, video, comment}
-            (html, mentions) <- runFmt (fmtComment comment) context
-            html
-            let cutoff = addUTCTime (-maxMentionAge) createdAt
-                recent c = c ^. #createdAt >= cutoff
-            for_ (filter recent mentions) \mention -> do
-              let context' = Context {conn, video, comment = mention}
-              fst =<< runFmt (fmtMentionPreview mention) context'
-    pure $ View {title, content, scroll = False}
+renderChat conn video playbackTime delay uid = do
+  let Video {id = vid, title, createdAt = startTime} = video
+      subTime = playbackTime - delay
+      currentTime = addUTCTime subTime startTime
+  chapter <- loadChapter conn vid subTime
+  comments <- loadComments conn vid currentTime uid commentLimit
+  content <- renderTextT do
+    div_ [class_ "header"] do
+      for_ chapter $ div_ [class_ "chapter"] . toHtml
+      pre_ [class_ "timestamp"] $ do
+        toHtml $ formatTime defaultTimeLocale "%F %T" currentTime
+        " ["
+        toHtml $ formatTime defaultTimeLocale "%h:%2M:%2S" subTime
+        when (delay /= 0) do
+          " "
+          when (delay > 0) "+"
+          toHtml $ formatTime defaultTimeLocale "%1Es" delay
+          "s"
+        "]"
+    ul_ [class_ "comments"] $
+      -- TODO; render timestamp if far apart enough
+      for_ comments \comment@Comment {createdAt, highlight} ->
+        li_ [class_ $ bool "" "highlight" $ highlight == Highlight] do
+          let context = Context {conn, video, comment}
+          (html, mentions) <- runFmt fmtComment context
+          html
+          let cutoff = addUTCTime (-maxMentionAge) createdAt
+              recent c = c ^. #createdAt >= cutoff
+              showName = length mentions > 1
+          for_ (filter recent mentions) \mention -> do
+            let context' = Context {conn, video, comment = mention}
+            fst =<< runFmt (fmtMentionPreview showName) context'
+  pure $ View {title, content, scroll = False}

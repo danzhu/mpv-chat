@@ -58,7 +58,7 @@ import Data.Conduit.Network.Unix
     clientSettings,
     runUnixClient,
   )
-import Data.IntMap.Strict (lookupMax)
+import qualified Data.IntMap.Strict as IM
 import Data.Time (NominalDiffTime)
 import GHC.OverloadedLabels (IsLabel (fromLabel))
 import GHC.TypeLits (KnownSymbol, Symbol, symbolVal)
@@ -123,7 +123,7 @@ newtype MpvError = MpvIpcError Error
 data MpvProtocolError
   = MpvTypeError String
   | MpvJsonError ByteString String
-  | MpvNoReqId
+  | MpvReqIdNotFound Int
   deriving stock (Show)
   deriving anyclass (Exception)
 
@@ -146,7 +146,7 @@ expectE e = either (throwM . e) pure
 insertNext :: a -> IntMap a -> (Int, IntMap a)
 insertNext v m = (k, insertMap k v m)
   where
-    k = maybe 1 (succ . fst) $ lookupMax m
+    k = maybe 1 (succ . fst) $ IM.lookupMax m
 
 remove :: Int -> IntMap a -> (Maybe a, IntMap a)
 remove = updateLookupWithKey del
@@ -173,7 +173,7 @@ consume :: Mpv -> Response -> IO ()
 consume Mpv {events} (ResEvent evt) = atomically $ writeTBQueue events evt
 consume Mpv {waits} (ResReply rid rep) = atomically $ do
   v <- stateTVar waits $ remove rid
-  w <- expect MpvNoReqId v
+  w <- expect (MpvReqIdNotFound rid) v
   putTMVar w rep
 
 encodeReq :: Request -> IO ByteString
@@ -227,7 +227,7 @@ communicate mpv@Mpv {closed} app =
 
 -- | Start mpv IPC, and run the provided action to finish before returning.
 -- Use `waitMpv` to make the connection stay open until mpv exits.
-withMpv :: (MonadUnliftIO m) => FilePath -> (Mpv -> m ()) -> m ()
+withMpv :: (MonadUnliftIO m) => FilePath -> (Mpv -> m a) -> m a
 withMpv ipcPath f = withRunInIO $ \run -> do
   mpv <- newMpvClient
   runUnixClient (clientSettings ipcPath) $ \app ->
