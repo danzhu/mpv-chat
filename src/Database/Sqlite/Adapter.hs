@@ -3,7 +3,7 @@ module Database.Sqlite.Adapter
   )
 where
 
-import Data.Aeson (FromJSON, ToJSON, eitherDecodeStrict', encode)
+import Data.Aeson (FromJSON, ToJSON, eitherDecodeStrictText, encode)
 import Data.Data (Typeable)
 import Database.SQLite.Simple
   ( ResultError (ConversionFailed),
@@ -18,7 +18,7 @@ newtype JSONField a = JSONField a
 instance (FromJSON a, Typeable a) => FromField (JSONField a) where
   fromField field = do
     text <- fromField field
-    case eitherDecodeStrict' $ encodeUtf8 text of
+    case eitherDecodeStrictText text of
       Left err -> returnError ConversionFailed field err
       Right val -> pure $ JSONField val
 

@@ -38,10 +38,8 @@ import Data.Aeson
   ( FromJSON (parseJSON),
     ToJSON (toJSON),
     Value (Null),
-    eitherDecodeStrict',
+    eitherDecodeStrict,
     encode,
-    parseJSON,
-    toJSON,
     withObject,
     (.!=),
     (.:),
@@ -186,7 +184,7 @@ encodeReq req = do
 decodeRes :: ByteString -> IO Response
 decodeRes line = do
   -- BC.putStrLn $ "  " <> line
-  expectE (MpvJsonError line) $ eitherDecodeStrict' line
+  expectE (MpvJsonError line) $ eitherDecodeStrict line
 
 send :: Mpv -> AppDataUnix -> IO ()
 send mpv app =

@@ -16,10 +16,9 @@ where
 
 import Data.Aeson
   ( Value,
-    json',
+    throwDecodeStrict,
   )
 import Data.Conduit (ConduitT, runConduit, yield, (.|))
-import Data.Conduit.Attoparsec (sinkParser)
 import qualified Data.Conduit.Combinators as C
 import Network.HTTP.Types.Header
   ( ResponseHeaders,
@@ -73,7 +72,7 @@ requestBS :: (MonadIO m) => Request -> m ByteString
 requestBS req = liftIO $ runConduit $ requestSource req .| C.fold
 
 requestJson :: (MonadIO m) => Request -> m Value
-requestJson req = liftIO $ runConduit $ requestSource req .| sinkParser json'
+requestJson = liftIO . throwDecodeStrict <=< requestBS
 
 responseRedirect :: ByteString -> Response
 responseRedirect l = responseBuilder temporaryRedirect307 [(hLocation, l)] ""
